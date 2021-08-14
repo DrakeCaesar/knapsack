@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string.hpp>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +30,22 @@ struct engine {
     string name;
     int weight;
     int thrust;
+};
+
+struct outfitSpace {
+    int total;
+    int thrust;
+    int steering;
+};
+
+struct record {
+    outfitSpace proposed;
+    outfitSpace actual;
+    vector<engine> steering;
+    vector<engine> thrusters;
+    int thrust;
+    int steer;
+    int total;
 };
 
 const vector<struct engine> thrusters = {
@@ -122,42 +138,22 @@ const vector<struct engine> steering = {
 vector<struct engine> findMatch(vector<struct engine> engines,
                                 vector<string> words) {
     vector<struct engine> match;
-    for (auto engine : engines) // access by reference to avoid copying
-    {
-        // cout << engine.type << endl;
-
-        for (auto word : words) // access by reference to avoid copying
-        {
-            // cout << word << endl;
-            string tempA = engine.type;
-            string tempB = word;
-            std::string data = "Abc";
-            std::transform(tempA.begin(), tempA.end(), tempA.begin(),
-                           [](unsigned char c) { return std::tolower(c); });
-            std::transform(tempB.begin(), tempB.end(), tempB.begin(),
-                           [](unsigned char c) { return std::tolower(c); });
-
-            if (tempA.find(tempB) != std::string::npos) {
-
+    for (auto engine : engines) {
+        for (auto word : words) {
+            if (icontains(engine.type, word)) {
                 bool inside = false;
-                for (auto matchedEngine :
-                     match) // access by reference to avoid copying
-                {
-                    if (strcmp(engine.name.c_str(),
-                               matchedEngine.name.c_str()) == 0) {
+                for (auto matchedEngine : match) {
+                    if (iequals(engine.name, matchedEngine.name)) {
                         inside = true;
                     }
                 }
                 if (inside == false) {
                     match.push_back(engine);
-                    std::cout << engine.name << '\n';
                 }
-                // match.push_back(engine);
-                // std::cout << engine.name << '\n';
             }
         }
     }
-    std::cout << '\n';
+    std::cout << endl;
     return match;
 }
 
@@ -209,20 +205,20 @@ void printknapSack(int W, vector<struct engine> engine, const char *word,
             stringstream temp;
             temp << "\t" << engine[i - 1].weight << "\t" << engine[i - 1].name
                  << "\n";
-            *signature = *signature + temp.str();
+            *signature += temp.str();
             *local << "\t" << engine[i - 1].weight << "\t" << engine[i - 1].name
                    << "\n";
-            sumw = sumw + engine[i - 1].weight;
-            if (strcmp(engine[i - 1].name.c_str(), "X1050 Ion Engines") == 0)
+            sumw += engine[i - 1].weight;
+            if (equals(engine[i - 1].name, "X1050 Ion Engines")) {
                 X1050++;
-            if (strcmp(engine[i - 1].name.c_str(), "Baellie Atomic Engines") ==
-                0)
+            }
+            if (equals(engine[i - 1].name, "Baellie Atomic Engines")) {
                 Baellie++;
-
+            }
             // Since this weight is included its
             // value is deducted
-            res = res - engine[i - 1].thrust;
-            w = w - engine[i - 1].weight;
+            res -= engine[i - 1].thrust;
+            w -= engine[i - 1].weight;
         }
     }
     *local << "Outfit: " << sumw << "\n";
@@ -268,7 +264,7 @@ int main(int argc, char *argv[]) {
         local << "\n";
         printknapSack(W - i, steeringFiltered, "Steering:", &newSig, &local);
         local << "---------------------------------------------\n";
-        if (oldSig.compare(newSig) != 0)
+        if (equals(oldSig, newSig) == false)
             sstream << local.str();
     }
     // cout << sstream.str();
