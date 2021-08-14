@@ -25,30 +25,31 @@ int Baellie;
 stringstream sstream;
 ofstream MyFile("..//output.txt");
 
-struct engine {
+typedef struct {
     string type;
     string name;
     int weight;
     int thrust;
-};
+} engine;
 
-struct outfitSpace {
+typedef struct {
     int total;
     int thrust;
     int steering;
-};
+} outfitSpace;
 
-struct record {
+typedef struct {
     outfitSpace proposed;
     outfitSpace actual;
     vector<engine> steering;
     vector<engine> thrusters;
+    string signature;
     int thrust;
     int steer;
     int total;
-};
+} record;
 
-const vector<struct engine> thrusters = {
+const vector<engine> thrusters = {
     {"Human plasma", "Chipmunk Plasma Thruster", 20, 34560},
     {"Human plasma", "Greyhound Plasma Thruster", 34, 66240},
     {"Human plasma", "Impala Plasma Thruster", 58, 127440},
@@ -92,7 +93,7 @@ const vector<struct engine> thrusters = {
 
 };
 
-const vector<struct engine> steering = {
+const vector<engine> steering = {
     {"Human plasma", "Chipmunk Plasma Steering", 15, 15360},
     {"Human plasma", "Greyhound Plasma Steering", 26, 29520},
     {"Human plasma", "Impala Plasma Steering", 43, 56640},
@@ -135,9 +136,8 @@ const vector<struct engine> steering = {
     {"Remnant", "Smelter Class Thruster", 55, 118800},
 
 };
-vector<struct engine> findMatch(vector<struct engine> engines,
-                                vector<string> words) {
-    vector<struct engine> match;
+vector<engine> findMatch(vector<engine> engines, vector<string> words) {
+    vector<engine> match;
     for (auto engine : engines) {
         for (auto word : words) {
             if (icontains(engine.type, word)) {
@@ -158,9 +158,10 @@ vector<struct engine> findMatch(vector<struct engine> engines,
 }
 
 // Prints the items which are put in a knapsack of capacity W
-void printknapSack(int W, vector<struct engine> engine, const char *word,
-                   string *signature, stringstream *local) {
-    int n = engine.size();
+void printknapSack(int W, vector<engine> engines, const char *word,
+                   string *signature, stringstream *local, record *record,
+                   vector<engine> *engine) {
+    int n = engines.size();
     X1050 = 0;
     Baellie = 0;
     sumw = 0;
@@ -175,9 +176,9 @@ void printknapSack(int W, vector<struct engine> engine, const char *word,
         for (w = 0; w <= W; w++) {
             if (i == 0 || w == 0)
                 K[i][w] = 0;
-            else if (engine[i - 1].weight <= w)
-                K[i][w] = max(engine[i - 1].thrust +
-                                  K[i - 1][w - engine[i - 1].weight],
+            else if (engines[i - 1].weight <= w)
+                K[i][w] = max(engines[i - 1].thrust +
+                                  K[i - 1][w - engines[i - 1].weight],
                               K[i - 1][w]);
             else
                 K[i][w] = K[i - 1][w];
@@ -203,26 +204,28 @@ void printknapSack(int W, vector<struct engine> engine, const char *word,
 
             // This item is included.
             stringstream temp;
-            temp << "\t" << engine[i - 1].weight << "\t" << engine[i - 1].name
+            temp << "\t" << engines[i - 1].weight << "\t" << engines[i - 1].name
                  << "\n";
-            *signature += temp.str();
-            *local << "\t" << engine[i - 1].weight << "\t" << engine[i - 1].name
-                   << "\n";
-            sumw += engine[i - 1].weight;
-            if (equals(engine[i - 1].name, "X1050 Ion Engines")) {
+            // *signature += ;
+            record->signature += temp.str();
+            engine->push_back(engines[i - 1]);
+            //*local << "\t" << engine[i - 1].weight << "\t" << engine[i -
+            // 1].name  << "\n";
+            sumw += engines[i - 1].weight;
+            if (equals(engines[i - 1].name, "X1050 Ion Engines")) {
                 X1050++;
             }
-            if (equals(engine[i - 1].name, "Baellie Atomic Engines")) {
+            if (equals(engines[i - 1].name, "Baellie Atomic Engines")) {
                 Baellie++;
             }
             // Since this weight is included its
             // value is deducted
-            res -= engine[i - 1].thrust;
-            w -= engine[i - 1].weight;
+            res -= engines[i - 1].thrust;
+            w -= engines[i - 1].weight;
         }
     }
-    *local << "Outfit: " << sumw << "\n";
-    *local << word << "\t" << res1 << "\n";
+    //*local << "Outfit: " << sumw << "\n";
+    //*local << word << "\t" << res1 << "\n";
 
     for (i = 0; i < r; i++)
         free(K[i]);
@@ -246,12 +249,18 @@ int main(int argc, char *argv[]) {
     string oldSig;
     string newSig;
 
-    vector<struct engine> thrustersFiltered = findMatch(thrusters, match);
-    vector<struct engine> steeringFiltered = findMatch(steering, match);
+    vector<engine> thrustersFiltered = findMatch(thrusters, match);
+    vector<engine> steeringFiltered = findMatch(steering, match);
+    vector<record> records;
 
     for (int i = 0; i <= W; i++) {
-        oldSig = "" + newSig;
-        newSig = "";
+        record temp;
+        records.push_back(temp);
+
+        records[i].proposed.thrust = i;
+        records[i].proposed.steering = W - i;
+        records[i].proposed.total = W;
+
         stringstream local;
 
         local << "---------------------------------------------\n";
@@ -259,12 +268,34 @@ int main(int argc, char *argv[]) {
         local << "Thrust:\t" << i << "\t";
         local << "Steer:\t" << W - i << "\n\n";
 
-        printknapSack(i, thrustersFiltered, "Thrust:  ", &newSig, &local);
+        printknapSack(i, thrustersFiltered, "Thrust:  ", &newSig, &local,
+                      &(records[i]), &(records[i].thrusters));
+        records[i].actual.thrust = 0;
+        for (auto engine : records[i].thrusters) {
+            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+            records[i].actual.thrust += engine.thrust;
+            records[i].actual.total += engine.thrust;
+        }
+        local << "Outfit: " << sumw << "\n";
+        local << "Thrust:  "
+              << "\t" << records[i].actual.thrust << "\n";
         // cout << newSig;
         local << "\n";
-        printknapSack(W - i, steeringFiltered, "Steering:", &newSig, &local);
+
+        printknapSack(W - i, steeringFiltered, "Steering:", &newSig, &local,
+                      &(records[i]), &(records[i].steering));
+        records[i].actual.steering = 0;
+        for (auto engine : records[i].steering) {
+            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+            records[i].actual.steering += engine.thrust;
+            records[i].actual.total += engine.thrust;
+        }
+        local << "Outfit: " << sumw << "\n";
+        local << "Steering:"
+              << "\t" << records[i].actual.steering << "\n";
         local << "---------------------------------------------\n";
-        if (equals(oldSig, newSig) == false)
+        if (i == 0 ||
+            equals(records[i - 1].signature, records[i].signature) == false)
             sstream << local.str();
     }
     // cout << sstream.str();
