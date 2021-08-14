@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -19,101 +22,146 @@ int Baellie;
 stringstream sstream;
 ofstream MyFile("..//output.txt");
 
-struct Engine {
+struct engine {
+    string type;
     string name;
     int weight;
     int thrust;
 };
 
-vector<struct Engine> thrusters = {{"Chipmunk Plasma Thruster", 20, 34560},
-                                   {"Greyhound Plasma Thruster", 34, 66240},
-                                   {"Impala Plasma Thruster", 58, 127440},
-                                   {"Orca Plasma Thruster", 98, 244440},
-                                   {"Tyrant Plasma Thruster", 167, 469800},
-                                   {"X1700 Ion Thruster", 16, 21600},
-                                   {"X2700 Ion Thruster", 27, 41400},
-                                   {"X3700 Ion Thruster", 46, 79560},
-                                   {"X4700 Ion Thruster", 79, 153000},
-                                   {"X5700 Ion Thruster", 134, 293400},
-                                   {"A120 Atomic Thruster", 22, 55400},
-                                   {"A250 Atomic Thruster", 34, 98280},
-                                   {"A370 Atomic Thruster", 53, 171360},
-                                   {"A520 Atomic Thruster", 82, 294840},
-                                   {"A860 Atomic Thruster", 127, 502920},
-                                   {"Basrem Atomic Thruster", 18, 47520},
-                                   {"Benga Atomic Thruster", 28, 84960},
-                                   {"Biroo Atomic Thruster", 44, 149400},
-                                   {"Bondir Atomic Thruster", 63, 237960},
-                                   {"Bufaer Atomic Thruster", 104, 432360},
-                                   {"Type 1 Radiant Thruster", 12, 23760},
-                                   {"Type 2 Radiant Thruster", 27, 63360},
-                                   {"Type 3 Radiant Thruster", 42, 113400},
-                                   {"Type 4 Radiant Thruster", 65, 198720},
-                                   {"Thruster (Asteroid Class)", 14, 40320},
-                                   {"Thruster (Comet Class)", 24, 78480},
-                                   {"Thruster (Lunar Class)", 40, 148320},
-                                   {"Thruster (Planetary Class)", 69, 288000},
-                                   {"Thruster (Stellar Class)", 118, 552240},
-                                   {"Small Thrust Module", 9, 23760},
-                                   {"Large Thrust Module", 32, 94320},
-                                   {"Pug Akfar Thruster", 43, 100800},
-                                   {"Pug Cormet Thruster", 60, 158400},
-                                   {"Pug Lohmar Thruster", 84, 237600},
-                                   {"Medium Gravitron Thruster", 70, 288000},
-                                   {"Crucible Class Thruster", 20, 64800},
-                                   {"Forge Class Thruster", 39, 133200},
-                                   {"Smelter Class Thruster", 76, 276480},
-                                   {"X1050 Ion Engines", 20, 14400},
-                                   {"Baellie Atomic Engines", 24, 36360}
+const vector<struct engine> thrusters = {
+    {"Human plasma", "Chipmunk Plasma Thruster", 20, 34560},
+    {"Human plasma", "Greyhound Plasma Thruster", 34, 66240},
+    {"Human plasma", "Impala Plasma Thruster", 58, 127440},
+    {"Human plasma", "Orca Plasma Thruster", 98, 244440},
+    {"Human plasma", "Tyrant Plasma Thruster", 167, 469800},
+    {"Human ion", "X1050 Ion Engines", 20, 14400},
+    {"Human ion", "X1700 Ion Thruster", 16, 21600},
+    {"Human ion", "X2700 Ion Thruster", 27, 41400},
+    {"Human ion", "X3700 Ion Thruster", 46, 79560},
+    {"Human ion", "X4700 Ion Thruster", 79, 153000},
+    {"Human ion", "X5700 Ion Thruster", 134, 293400},
+    {"Human atomic", "A120 Atomic Thruster", 22, 55400},
+    {"Human atomic", "A250 Atomic Thruster", 34, 98280},
+    {"Human atomic", "A370 Atomic Thruster", 53, 171360},
+    {"Human atomic", "A520 Atomic Thruster", 82, 294840},
+    {"Human atomic", "A860 Atomic Thruster", 127, 502920},
+    {"Hai atomic", "Baellie Atomic Engines", 24, 36360},
+    {"Hai atomic", "Basrem Atomic Thruster", 18, 47520},
+    {"Hai atomic", "Benga Atomic Thruster", 28, 84960},
+    {"Hai atomic", "Biroo Atomic Thruster", 44, 149400},
+    {"Hai atomic", "Bondir Atomic Thruster", 63, 237960},
+    {"Hai atomic", "Bufaer Atomic Thruster", 104, 432360},
+    {"Wanderer radiant", "Type 1 Radiant Thruster", 12, 23760},
+    {"Wanderer radiant", "Type 2 Radiant Thruster", 27, 63360},
+    {"Wanderer radiant", "Type 3 Radiant Thruster", 42, 113400},
+    {"Wanderer radiant", "Type 4 Radiant Thruster", 65, 198720},
+    {"Korath", "Thruster (Asteroid Class)", 14, 40320},
+    {"Korath", "Thruster (Comet Class)", 24, 78480},
+    {"Korath", "Thruster (Lunar Class)", 40, 148320},
+    {"Korath", "Thruster (Planetary Class)", 69, 288000},
+    {"Korath", "Thruster (Stellar Class)", 118, 552240},
+    {"Coalition", "Small Thrust Module", 9, 23760},
+    {"Coalition", "Large Thrust Module", 32, 94320},
+    {"Pug", "Pug Akfar Thruster", 43, 100800},
+    {"Pug", "Pug Cormet Thruster", 60, 158400},
+    {"Pug", "Pug Lohmar Thruster", 84, 237600},
+    {"Quarg/Drak graviton", "Medium Gravitron Thruster", 70, 288000},
+    {"Remnant", "Crucible Class Thruster", 20, 64800},
+    {"Remnant", "Forge Class Thruster", 39, 133200},
+    {"Remnant", "Smelter Class Thruster", 76, 276480},
 
 };
 
-vector<struct Engine> steerings = {
-    {"Chipmunk Plasma Steering", 15, 15360},
-    {"Greyhound Plasma Steering", 26, 29520},
-    {"Impala Plasma Steering", 43, 56640},
-    {"Orca Plasma Steering", 74, 108720},
-    {"Tyrant Plasma Steering", 125, 208740},
-    {"X1200 Ion Steering", 12, 9600},
-    {"X2200 Ion Steering", 20, 18420},
-    {"X3200 Ion Steering", 35, 35400},
-    {"X4200 Ion Steering", 59, 67900},
-    {"X5200 Ion Steering", 100, 130440},
-    {"A125 Atomic Steering", 16, 23520},
-    {"A255 Atomic Steering", 25, 41220},
-    {"A375 Atomic Steering", 38, 71520},
-    {"A525 Atomic Steering", 60, 123000},
-    {"A865 Atomic Steering", 92, 210540},
-    {"Basrem Atomic Steering", 12, 18540},
-    {"Benga Atomic Steering", 20, 34620},
-    {"Biroo Atomic Steering", 32, 63240},
-    {"Bondir Atomic Steering", 49, 105480},
-    {"Bufaer Atomic Steering", 76, 182580},
-    {"Type 1 Radiant Steering", 9, 10368},
-    {"Type 2 Radiant Steering", 20, 27240},
-    {"Type 3 Radiant Steering", 30, 47160},
-    {"Type 4 Radiant Steering", 47, 83754},
-    {"Steering (Asteroid Class)", 10, 16800},
-    {"Steering (Comet Class)", 18, 34128},
-    {"Steering (Lunar Class)", 30, 63360},
-    {"Steering (Planetary Class)", 52, 124176},
-    {"Steering (Stellar Class)", 89, 240300},
-    {"Small Steering Miodule", 7, 10728},
-    {"Large Steering Module", 25, 42714},
-    {"Pug Akfar Steering", 33, 45000},
-    {"Pug Cormet Steering", 46, 67800},
-    {"Pug Lohmar Steering", 64, 102000},
-    {"Medium Gravitron Steering", 50, 96000},
-    {"Crucible Class Thruster", 14, 26880},
-    {"Forge Class Thruster", 28, 57120},
-    {"Smelter Class Thruster", 55, 118800},
-    {"X1050 Ion Engines", 20, 6600},
-    {"Baellie Atomic Engines", 24, 15000},
+const vector<struct engine> steering = {
+    {"Human plasma", "Chipmunk Plasma Steering", 15, 15360},
+    {"Human plasma", "Greyhound Plasma Steering", 26, 29520},
+    {"Human plasma", "Impala Plasma Steering", 43, 56640},
+    {"Human plasma", "Orca Plasma Steering", 74, 108720},
+    {"Human plasma", "Tyrant Plasma Steering", 125, 208740},
+    {"Human ion", "X1050 Ion Engines", 20, 6600},
+    {"Human ion", "X1200 Ion Steering", 12, 9600},
+    {"Human ion", "X2200 Ion Steering", 20, 18420},
+    {"Human ion", "X3200 Ion Steering", 35, 35400},
+    {"Human ion", "X4200 Ion Steering", 59, 67900},
+    {"Human ion", "X5200 Ion Steering", 100, 130440},
+    {"Human atomic", "A125 Atomic Steering", 16, 23520},
+    {"Human atomic", "A255 Atomic Steering", 25, 41220},
+    {"Human atomic", "A375 Atomic Steering", 38, 71520},
+    {"Human atomic", "A525 Atomic Steering", 60, 123000},
+    {"Human atomic", "A865 Atomic Steering", 92, 210540},
+    {"Hai atomic", "Baellie Atomic Engines", 24, 15000},
+    {"Hai atomic", "Basrem Atomic Steering", 12, 18540},
+    {"Hai atomic", "Benga Atomic Steering", 20, 34620},
+    {"Hai atomic", "Biroo Atomic Steering", 32, 63240},
+    {"Hai atomic", "Bondir Atomic Steering", 49, 105480},
+    {"Hai atomic", "Bufaer Atomic Steering", 76, 182580},
+    {"Wanderer radiant", "Type 1 Radiant Steering", 9, 10368},
+    {"Wanderer radiant", "Type 2 Radiant Steering", 20, 27240},
+    {"Wanderer radiant", "Type 3 Radiant Steering", 30, 47160},
+    {"Wanderer radiant", "Type 4 Radiant Steering", 47, 83754},
+    {"Korath", "Steering (Asteroid Class)", 10, 16800},
+    {"Korath", "Steering (Comet Class)", 18, 34128},
+    {"Korath", "Steering (Lunar Class)", 30, 63360},
+    {"Korath", "Steering (Planetary Class)", 52, 124176},
+    {"Korath", "Steering (Stellar Class)", 89, 240300},
+    {"Coalition", "Small Steering Miodule", 7, 10728},
+    {"Coalition", "Large Steering Module", 25, 42714},
+    {"Pug", "Pug Akfar Steering", 33, 45000},
+    {"Pug", "Pug Cormet Steering", 46, 67800},
+    {"Pug", "Pug Lohmar Steering", 64, 102000},
+    {"Quarg/Drak graviton", "Medium Gravitron Steering", 50, 96000},
+    {"Remnant", "Crucible Class Thruster", 14, 26880},
+    {"Remnant", "Forge Class Thruster", 28, 57120},
+    {"Remnant", "Smelter Class Thruster", 55, 118800},
+
 };
+vector<struct engine> findMatch(vector<struct engine> engines,
+                                vector<string> words) {
+    vector<struct engine> match;
+    for (auto engine : engines) // access by reference to avoid copying
+    {
+        // cout << engine.type << endl;
+
+        for (auto word : words) // access by reference to avoid copying
+        {
+            // cout << word << endl;
+            string tempA = engine.type;
+            string tempB = word;
+            std::string data = "Abc";
+            std::transform(tempA.begin(), tempA.end(), tempA.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            std::transform(tempB.begin(), tempB.end(), tempB.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+
+            if (tempA.find(tempB) != std::string::npos) {
+
+                bool inside = false;
+                for (auto matchedEngine :
+                     match) // access by reference to avoid copying
+                {
+                    if (strcmp(engine.name.c_str(),
+                               matchedEngine.name.c_str()) == 0) {
+                        inside = true;
+                    }
+                }
+                if (inside == false) {
+                    match.push_back(engine);
+                    std::cout << engine.name << '\n';
+                }
+                // match.push_back(engine);
+                // std::cout << engine.name << '\n';
+            }
+        }
+    }
+    std::cout << '\n';
+    return match;
+}
 
 // Prints the items which are put in a knapsack of capacity W
-void printknapSack(int W, vector<struct Engine> engine, int n, const char *word,
+void printknapSack(int W, vector<struct engine> engine, const char *word,
                    string *signature, stringstream *local) {
+    int n = engine.size();
     X1050 = 0;
     Baellie = 0;
     sumw = 0;
@@ -176,19 +224,32 @@ void printknapSack(int W, vector<struct Engine> engine, int n, const char *word,
     }
     *local << "Outfit: " << sumw << "\n";
     *local << word << "\t" << res1 << "\n";
+
+    for (i = 0; i < r; i++)
+        free(K[i]);
+    free(K);
 }
 
 // Driver code
 int main(int argc, char *argv[]) {
     int W;
-    if (argc != 2) {
+    vector<string> match;
+    if (argc <= 2) {
         W = 40;
+        match = {"Human"};
+        return 1;
     } else {
         W = atoi(argv[1]);
+        for (int i = 2; i < argc; i++) {
+            match.push_back(argv[i]);
+        }
     }
 
     string oldSig;
     string newSig;
+
+    vector<struct engine> thrustersFiltered = findMatch(thrusters, match);
+    vector<struct engine> steeringFiltered = findMatch(steering, match);
 
     for (int i = 0; i <= W; i++) {
         oldSig = "" + newSig;
@@ -200,12 +261,10 @@ int main(int argc, char *argv[]) {
         local << "Thrust:\t" << i << "\t";
         local << "Steer:\t" << W - i << "\n\n";
 
-        int n = thrusters.size();
-        printknapSack(i, thrusters, n, "Thrust:  ", &newSig, &local);
-        cout << newSig;
+        printknapSack(i, thrustersFiltered, "Thrust:  ", &newSig, &local);
+        // cout << newSig;
         local << "\n";
-        n = steerings.size();
-        printknapSack(W - i, steerings, n, "Steering:", &newSig, &local);
+        printknapSack(W - i, steeringFiltered, "Steering:", &newSig, &local);
         local << "---------------------------------------------\n";
         if (oldSig.compare(newSig) != 0)
             sstream << local.str();
