@@ -10,6 +10,9 @@
 #include <vector>
 
 using namespace std;
+using namespace boost;
+using namespace boost::algorithm;
+
 // CPP code for Dynamic Programming based
 // solution for 0-1 Knapsack problem
 
@@ -235,9 +238,8 @@ int main(int argc, char *argv[]) {
     int W;
     vector<string> match;
     if (argc <= 2) {
-        W = 40;
-        match = {"Human"};
-        return 1;
+        W = 88;
+        match = {"Human", "hai"};
     } else {
         W = atoi(argv[1]);
         for (int i = 2; i < argc; i++) {
