@@ -45,6 +45,7 @@ typedef struct {
     int thrust;
     int steer;
     int total;
+    bool deletion;
 } record;
 
 const vector<engine> thrusters = {
@@ -159,7 +160,7 @@ vector<engine> findMatch(vector<engine> engines, vector<string> words) {
 // Prints the items which are put in a knapsack of capacity W
 void knapsack(int W, vector<engine> engines, string *signature, record *record,
               vector<engine> *engine) {
-    int n = engines.size();
+    int n = (int)engines.size();
     X1050 = 0;
     Baellie = 0;
     int i, w;
@@ -225,8 +226,23 @@ void knapsack(int W, vector<engine> engines, string *signature, record *record,
 void printResults(vector<record> *records) {
     stringstream sstream;
 
-    cout << records->size() << endl;
-    for (int i = 0; i <= records->size(); i++) {
+    for (int i = 1; i < records->size(); i++) {
+        if ((*records)[i].thrust >= (*records)[i - 1].thrust &&
+            (*records)[i].steer >= (*records)[i - 1].steer) {
+            (*records).erase((*records).begin() + i - 1);
+            cout << i << endl;
+            i = 0;
+            continue;
+        } else if ((*records)[i].thrust <= (*records)[i - 1].thrust &&
+                   (*records)[i].steer <= (*records)[i - 1].steer) {
+            (*records).erase((*records).begin() + i);
+            cout << i << endl;
+            i = 0;
+            continue;
+        }
+    }
+
+    for (int i = 0; i < records->size(); i++) {
 
         stringstream local;
 
@@ -252,10 +268,11 @@ void printResults(vector<record> *records) {
         }
 
         local << "---------------------------------------------\n";
-        if (i == 0 || equals((*records)[i - 1].signature,
-                             (*records)[i].signature) == false) {
-            MyFile << local.str();
-        }
+        // if (i == 0 || equals((*records)[i - 1].signature,
+        //                     (*records)[i].signature) == false) {
+        //
+        //}
+        MyFile << local.str();
     }
     // cout << sstream.str();
     cout << sstream.str() << endl;
