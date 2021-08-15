@@ -301,7 +301,7 @@ int main(int argc, char *argv[]) {
     vector<engine> thrustersFiltered;
     vector<engine> steeringFiltered;
 
-    if (equals(argv[2], "all")) {
+    if (argc > 2 && iequals(argv[2], "all")) {
         thrustersFiltered = thrusters;
         steeringFiltered = steering;
     } else {
