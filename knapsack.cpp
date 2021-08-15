@@ -1,3 +1,4 @@
+#include "boost/algorithm/string/predicate.hpp"
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <cctype>
@@ -230,13 +231,13 @@ void printResults(vector<record> *records) {
         if ((*records)[i].thrust >= (*records)[i - 1].thrust &&
             (*records)[i].steer >= (*records)[i - 1].steer) {
             (*records).erase((*records).begin() + i - 1);
-            cout << i << endl;
+            // cout << i << endl;
             i = 0;
             continue;
         } else if ((*records)[i].thrust <= (*records)[i - 1].thrust &&
                    (*records)[i].steer <= (*records)[i - 1].steer) {
             (*records).erase((*records).begin() + i);
-            cout << i << endl;
+            // cout << i << endl;
             i = 0;
             continue;
         }
@@ -246,18 +247,16 @@ void printResults(vector<record> *records) {
 
         stringstream local;
 
-        local << "---------------------------------------------\n";
-        local << "Total:\t" << (*records)[i].proposed.total << "\t";
-        local << "Thrust:\t" << (*records)[i].proposed.thrust << "\t";
-        local << "Steer:\t" << (*records)[i].proposed.steering << "\n";
-        local << "Total:\t" << (*records)[i].actual.total << "\t";
-        local << "Thrust:\t" << (*records)[i].actual.thrust << "\t";
-        local << "Steer:\t" << (*records)[i].actual.steering << "\n\n";
+        local << "---------------------------------------------\n\n";
+        local << "Total: " << (*records)[i].actual.total << "\t";
+        local << "Thrust: " << (*records)[i].actual.thrust << "\t";
+        local << "Steer: " << (*records)[i].actual.steering << "\t";
+        local << "Missing: "
+              << (*records)[i].proposed.total - (*records)[i].actual.total
+              << "\n\n";
 
-        local << "Thrust:  "
-              << "\t" << (*records)[i].thrust << "\n";
-        local << "Steering:"
-              << "\t" << (*records)[i].steer << "\n\n";
+        local << "\tThrust:   " << (*records)[i].thrust << "\n";
+        local << "\tSteering: " << (*records)[i].steer << "\n\n";
 
         for (auto &engine : (*records)[i].thrusters) {
             local << "\t" << engine.weight << "\t" << engine.name << "\n";
@@ -266,8 +265,8 @@ void printResults(vector<record> *records) {
         for (auto &engine : (*records)[i].steering) {
             local << "\t" << engine.weight << "\t" << engine.name << "\n";
         }
+        local << "\n";
 
-        local << "---------------------------------------------\n";
         // if (i == 0 || equals((*records)[i - 1].signature,
         //                     (*records)[i].signature) == false) {
         //
@@ -275,8 +274,10 @@ void printResults(vector<record> *records) {
         MyFile << local.str();
     }
     // cout << sstream.str();
-    cout << sstream.str() << endl;
+    // cout << sstream.str() << endl;
+    sstream << "---------------------------------------------\n\n";
     MyFile << sstream.str();
+
     return;
 }
 
@@ -297,8 +298,17 @@ int main(int argc, char *argv[]) {
     string oldSig;
     string newSig;
 
-    vector<engine> thrustersFiltered = findMatch(thrusters, match);
-    vector<engine> steeringFiltered = findMatch(steering, match);
+    vector<engine> thrustersFiltered;
+    vector<engine> steeringFiltered;
+
+    if (equals(argv[2], "all")) {
+        thrustersFiltered = thrusters;
+        steeringFiltered = steering;
+    } else {
+        thrustersFiltered = findMatch(thrusters, match);
+        steeringFiltered = findMatch(steering, match);
+    }
+
     vector<record> records;
 
     for (int i = 0; i <= W; i++) {
