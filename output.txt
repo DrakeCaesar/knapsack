@@ -1,363 +1,372 @@
 ---------------------------------------------
 Total:	88	Thrust:	0	Steer:	88
+Total:	88	Thrust:	0	Steer:	88
 
-Outfit: 0
 Thrust:  	0
+Steering:	201120
+
 
 	76	Bufaer Atomic Steering
 	12	Basrem Atomic Steering
-Outfit: 88
-Steering:	201120
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	1	Steer:	87
+Total:	76	Thrust:	0	Steer:	76
 
-Outfit: 0
 Thrust:  	0
+Steering:	182580
+
 
 	76	Bufaer Atomic Steering
-Outfit: 76
-Steering:	182580
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	13	Steer:	75
+Total:	74	Thrust:	0	Steer:	74
 
-Outfit: 0
 Thrust:  	0
+Steering:	146700
+
 
 	49	Bondir Atomic Steering
 	25	A255 Atomic Steering
-Outfit: 74
-Steering:	146700
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	15	Steer:	73
+Total:	72	Thrust:	0	Steer:	72
 
-Outfit: 0
 Thrust:  	0
+Steering:	141540
+
 
 	12	Basrem Atomic Steering
 	60	A525 Atomic Steering
-Outfit: 72
-Steering:	141540
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	16	Steer:	72
+Total:	88	Thrust:	16	Steer:	72
+
+Thrust:  	21600
+Steering:	141540
 
 	16	X1700 Ion Thruster
-Outfit: 16
-Thrust:  	21600
 
 	12	Basrem Atomic Steering
 	60	A525 Atomic Steering
-Outfit: 72
-Steering:	141540
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	17	Steer:	71
+Total:	85	Thrust:	16	Steer:	69
+
+Thrust:  	21600
+Steering:	140100
 
 	16	X1700 Ion Thruster
-Outfit: 16
-Thrust:  	21600
 
 	49	Bondir Atomic Steering
 	20	Benga Atomic Steering
-Outfit: 69
-Steering:	140100
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	18	Steer:	70
+Total:	87	Thrust:	18	Steer:	69
+
+Thrust:  	47520
+Steering:	140100
 
 	18	Basrem Atomic Thruster
-Outfit: 18
-Thrust:  	47520
 
 	49	Bondir Atomic Steering
 	20	Benga Atomic Steering
-Outfit: 69
-Steering:	140100
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	20	Steer:	68
+Total:	83	Thrust:	18	Steer:	65
+
+Thrust:  	47520
+Steering:	129000
 
 	18	Basrem Atomic Thruster
-Outfit: 18
-Thrust:  	47520
 
 	49	Bondir Atomic Steering
 	16	A125 Atomic Steering
-Outfit: 65
-Steering:	129000
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	22	Steer:	66
+Total:	87	Thrust:	22	Steer:	65
+
+Thrust:  	55400
+Steering:	129000
 
 	22	A120 Atomic Thruster
-Outfit: 22
-Thrust:  	55400
 
 	49	Bondir Atomic Steering
 	16	A125 Atomic Steering
-Outfit: 65
-Steering:	129000
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	24	Steer:	64
+Total:	83	Thrust:	22	Steer:	61
+
+Thrust:  	55400
+Steering:	124020
 
 	22	A120 Atomic Thruster
-Outfit: 22
-Thrust:  	55400
 
 	49	Bondir Atomic Steering
 	12	Basrem Atomic Steering
-Outfit: 61
-Steering:	124020
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	28	Steer:	60
+Total:	88	Thrust:	28	Steer:	60
+
+Thrust:  	84960
+Steering:	123000
 
 	28	Benga Atomic Thruster
-Outfit: 28
-Thrust:  	84960
 
 	60	A525 Atomic Steering
-Outfit: 60
-Steering:	123000
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	29	Steer:	59
+Total:	86	Thrust:	28	Steer:	58
+
+Thrust:  	84960
+Steering:	106140
 
 	28	Benga Atomic Thruster
-Outfit: 28
-Thrust:  	84960
 
 	20	Benga Atomic Steering
 	38	A375 Atomic Steering
-Outfit: 58
-Steering:	106140
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	31	Steer:	57
+Total:	77	Thrust:	28	Steer:	49
+
+Thrust:  	84960
+Steering:	105480
 
 	28	Benga Atomic Thruster
-Outfit: 28
-Thrust:  	84960
 
 	49	Bondir Atomic Steering
-Outfit: 49
-Steering:	105480
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	34	Steer:	54
+Total:	83	Thrust:	34	Steer:	49
+
+Thrust:  	98280
+Steering:	105480
 
 	34	A250 Atomic Thruster
-Outfit: 34
-Thrust:  	98280
 
 	49	Bondir Atomic Steering
-Outfit: 49
-Steering:	105480
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	40	Steer:	48
+Total:	88	Thrust:	40	Steer:	48
+
+Thrust:  	102920
+Steering:	86760
 
 	18	Basrem Atomic Thruster
 	22	A120 Atomic Thruster
-Outfit: 40
-Thrust:  	102920
 
 	32	Biroo Atomic Steering
 	16	A125 Atomic Steering
-Outfit: 48
-Steering:	86760
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	41	Steer:	47
+Total:	84	Thrust:	40	Steer:	44
+
+Thrust:  	102920
+Steering:	81780
 
 	18	Basrem Atomic Thruster
 	22	A120 Atomic Thruster
-Outfit: 40
-Thrust:  	102920
 
 	32	Biroo Atomic Steering
 	12	Basrem Atomic Steering
-Outfit: 44
-Steering:	81780
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	44	Steer:	44
+Total:	88	Thrust:	44	Steer:	44
+
+Thrust:  	149400
+Steering:	81780
 
 	44	Biroo Atomic Thruster
-Outfit: 44
-Thrust:  	149400
 
 	32	Biroo Atomic Steering
 	12	Basrem Atomic Steering
-Outfit: 44
-Steering:	81780
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	45	Steer:	43
+Total:	82	Thrust:	44	Steer:	38
+
+Thrust:  	149400
+Steering:	71520
 
 	44	Biroo Atomic Thruster
-Outfit: 44
-Thrust:  	149400
 
 	38	A375 Atomic Steering
-Outfit: 38
-Steering:	71520
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	51	Steer:	37
+Total:	76	Thrust:	44	Steer:	32
+
+Thrust:  	149400
+Steering:	63240
 
 	44	Biroo Atomic Thruster
-Outfit: 44
-Thrust:  	149400
 
 	32	Biroo Atomic Steering
-Outfit: 32
-Steering:	63240
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	53	Steer:	35
+Total:	85	Thrust:	53	Steer:	32
+
+Thrust:  	171360
+Steering:	63240
 
 	53	A370 Atomic Thruster
-Outfit: 53
-Thrust:  	171360
 
 	32	Biroo Atomic Steering
-Outfit: 32
-Steering:	63240
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	57	Steer:	31
+Total:	81	Thrust:	53	Steer:	28
+
+Thrust:  	171360
+Steering:	42060
 
 	53	A370 Atomic Thruster
-Outfit: 53
-Thrust:  	171360
 
 	12	Basrem Atomic Steering
 	16	A125 Atomic Steering
-Outfit: 28
-Steering:	42060
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	61	Steer:	27
+Total:	78	Thrust:	53	Steer:	25
+
+Thrust:  	171360
+Steering:	41220
 
 	53	A370 Atomic Thruster
-Outfit: 53
-Thrust:  	171360
 
 	25	A255 Atomic Steering
-Outfit: 25
-Steering:	41220
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	62	Steer:	26
+Total:	87	Thrust:	62	Steer:	25
+
+Thrust:  	196920
+Steering:	41220
 
 	44	Biroo Atomic Thruster
 	18	Basrem Atomic Thruster
-Outfit: 62
-Thrust:  	196920
 
 	25	A255 Atomic Steering
-Outfit: 25
-Steering:	41220
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	63	Steer:	25
+Total:	88	Thrust:	63	Steer:	25
+
+Thrust:  	237960
+Steering:	41220
 
 	63	Bondir Atomic Thruster
-Outfit: 63
-Thrust:  	237960
 
 	25	A255 Atomic Steering
-Outfit: 25
-Steering:	41220
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	64	Steer:	24
+Total:	83	Thrust:	63	Steer:	20
+
+Thrust:  	237960
+Steering:	34620
 
 	63	Bondir Atomic Thruster
-Outfit: 63
-Thrust:  	237960
 
 	20	Benga Atomic Steering
-Outfit: 20
-Steering:	34620
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	69	Steer:	19
+Total:	79	Thrust:	63	Steer:	16
+
+Thrust:  	237960
+Steering:	23520
 
 	63	Bondir Atomic Thruster
-Outfit: 63
-Thrust:  	237960
 
 	16	A125 Atomic Steering
-Outfit: 16
-Steering:	23520
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	73	Steer:	15
+Total:	75	Thrust:	63	Steer:	12
+
+Thrust:  	237960
+Steering:	18540
 
 	63	Bondir Atomic Thruster
-Outfit: 63
-Thrust:  	237960
 
 	12	Basrem Atomic Steering
-Outfit: 12
-Steering:	18540
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	77	Steer:	11
+Total:	63	Thrust:	63	Steer:	0
+
+Thrust:  	237960
+Steering:	0
 
 	63	Bondir Atomic Thruster
-Outfit: 63
-Thrust:  	237960
 
-Outfit: 0
-Steering:	0
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	78	Steer:	10
+Total:	78	Thrust:	78	Steer:	0
+
+Thrust:  	247680
+Steering:	0
 
 	44	Biroo Atomic Thruster
 	34	A250 Atomic Thruster
-Outfit: 78
-Thrust:  	247680
 
-Outfit: 0
-Steering:	0
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	79	Steer:	9
+Total:	79	Thrust:	79	Steer:	0
+
+Thrust:  	259560
+Steering:	0
 
 	63	Bondir Atomic Thruster
 	16	X1700 Ion Thruster
-Outfit: 79
-Thrust:  	259560
 
-Outfit: 0
-Steering:	0
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	81	Steer:	7
+Total:	81	Thrust:	81	Steer:	0
+
+Thrust:  	285480
+Steering:	0
 
 	63	Bondir Atomic Thruster
 	18	Basrem Atomic Thruster
-Outfit: 81
-Thrust:  	285480
 
-Outfit: 0
-Steering:	0
 ---------------------------------------------
 ---------------------------------------------
 Total:	88	Thrust:	82	Steer:	6
+Total:	82	Thrust:	82	Steer:	0
+
+Thrust:  	294840
+Steering:	0
 
 	82	A520 Atomic Thruster
-Outfit: 82
-Thrust:  	294840
 
-Outfit: 0
+---------------------------------------------
+---------------------------------------------
+Total:	0	Thrust:	0	Steer:	0
+Total:	0	Thrust:	0	Steer:	0
+
+Thrust:  	0
 Steering:	0
+
+
 ---------------------------------------------

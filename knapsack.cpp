@@ -18,11 +18,9 @@ using namespace boost::algorithm;
 
 // A utility function that returns maximum of two integers
 int max(int a, int b) { return (a > b) ? a : b; }
-int sumw;
 int X1050;
 int Baellie;
 
-stringstream sstream;
 ofstream MyFile("..//output.txt");
 
 typedef struct {
@@ -136,13 +134,14 @@ const vector<engine> steering = {
     {"Remnant", "Smelter Class Thruster", 55, 118800},
 
 };
+
 vector<engine> findMatch(vector<engine> engines, vector<string> words) {
     vector<engine> match;
-    for (auto engine : engines) {
-        for (auto word : words) {
+    for (auto &engine : engines) {
+        for (auto &word : words) {
             if (icontains(engine.type, word)) {
                 bool inside = false;
-                for (auto matchedEngine : match) {
+                for (auto &matchedEngine : match) {
                     if (iequals(engine.name, matchedEngine.name)) {
                         inside = true;
                     }
@@ -158,13 +157,11 @@ vector<engine> findMatch(vector<engine> engines, vector<string> words) {
 }
 
 // Prints the items which are put in a knapsack of capacity W
-void printknapSack(int W, vector<engine> engines, const char *word,
-                   string *signature, stringstream *local, record *record,
-                   vector<engine> *engine) {
+void knapsack(int W, vector<engine> engines, string *signature, record *record,
+              vector<engine> *engine) {
     int n = engines.size();
     X1050 = 0;
     Baellie = 0;
-    sumw = 0;
     int i, w;
     int r = n + 1, c = W + 1;
     int **K = (int **)malloc(r * sizeof(int *));
@@ -187,7 +184,6 @@ void printknapSack(int W, vector<engine> engines, const char *word,
 
     // stores the result of Knapsack
     int res = K[n][W];
-    int res1 = res;
     // sstream << "Thrust:"<< res << "\n";
 
     w = W;
@@ -206,12 +202,8 @@ void printknapSack(int W, vector<engine> engines, const char *word,
             stringstream temp;
             temp << "\t" << engines[i - 1].weight << "\t" << engines[i - 1].name
                  << "\n";
-            // *signature += ;
             record->signature += temp.str();
             engine->push_back(engines[i - 1]);
-            //*local << "\t" << engine[i - 1].weight << "\t" << engine[i -
-            // 1].name  << "\n";
-            sumw += engines[i - 1].weight;
             if (equals(engines[i - 1].name, "X1050 Ion Engines")) {
                 X1050++;
             }
@@ -224,12 +216,51 @@ void printknapSack(int W, vector<engine> engines, const char *word,
             w -= engines[i - 1].weight;
         }
     }
-    //*local << "Outfit: " << sumw << "\n";
-    //*local << word << "\t" << res1 << "\n";
 
     for (i = 0; i < r; i++)
         free(K[i]);
     free(K);
+}
+
+void printResults(vector<record> *records) {
+    stringstream sstream;
+
+    cout << records->size() << endl;
+    for (int i = 0; i <= records->size(); i++) {
+
+        stringstream local;
+
+        local << "---------------------------------------------\n";
+        local << "Total:\t" << (*records)[i].proposed.total << "\t";
+        local << "Thrust:\t" << (*records)[i].proposed.thrust << "\t";
+        local << "Steer:\t" << (*records)[i].proposed.steering << "\n";
+        local << "Total:\t" << (*records)[i].actual.total << "\t";
+        local << "Thrust:\t" << (*records)[i].actual.thrust << "\t";
+        local << "Steer:\t" << (*records)[i].actual.steering << "\n\n";
+
+        local << "Thrust:  "
+              << "\t" << (*records)[i].thrust << "\n";
+        local << "Steering:"
+              << "\t" << (*records)[i].steer << "\n\n";
+
+        for (auto &engine : (*records)[i].thrusters) {
+            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+        }
+        local << "\n";
+        for (auto &engine : (*records)[i].steering) {
+            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+        }
+
+        local << "---------------------------------------------\n";
+        if (i == 0 || equals((*records)[i - 1].signature,
+                             (*records)[i].signature) == false) {
+            MyFile << local.str();
+        }
+    }
+    // cout << sstream.str();
+    cout << sstream.str() << endl;
+    MyFile << sstream.str();
+    return;
 }
 
 // Driver code
@@ -261,44 +292,28 @@ int main(int argc, char *argv[]) {
         records[i].proposed.steering = W - i;
         records[i].proposed.total = W;
 
-        stringstream local;
+        knapsack(i, thrustersFiltered, &newSig, &(records[i]),
+                 &(records[i].thrusters));
+        knapsack(W - i, steeringFiltered, &newSig, &(records[i]),
+                 &(records[i].steering));
 
-        local << "---------------------------------------------\n";
-        local << "Total:\t" << W << "\t";
-        local << "Thrust:\t" << i << "\t";
-        local << "Steer:\t" << W - i << "\n\n";
-
-        printknapSack(i, thrustersFiltered, "Thrust:  ", &newSig, &local,
-                      &(records[i]), &(records[i].thrusters));
         records[i].actual.thrust = 0;
-        for (auto engine : records[i].thrusters) {
-            local << "\t" << engine.weight << "\t" << engine.name << "\n";
-            records[i].actual.thrust += engine.thrust;
-            records[i].actual.total += engine.thrust;
+        records[i].thrust = 0;
+        for (auto &engine : records[i].thrusters) {
+            records[i].actual.thrust += engine.weight;
+            records[i].actual.total += engine.weight;
+            records[i].thrust += engine.thrust;
         }
-        local << "Outfit: " << sumw << "\n";
-        local << "Thrust:  "
-              << "\t" << records[i].actual.thrust << "\n";
-        // cout << newSig;
-        local << "\n";
 
-        printknapSack(W - i, steeringFiltered, "Steering:", &newSig, &local,
-                      &(records[i]), &(records[i].steering));
         records[i].actual.steering = 0;
-        for (auto engine : records[i].steering) {
-            local << "\t" << engine.weight << "\t" << engine.name << "\n";
-            records[i].actual.steering += engine.thrust;
-            records[i].actual.total += engine.thrust;
+        records[i].steer = 0;
+
+        for (auto &engine : records[i].steering) {
+            records[i].actual.steering += engine.weight;
+            records[i].actual.total += engine.weight;
+            records[i].steer += engine.thrust;
         }
-        local << "Outfit: " << sumw << "\n";
-        local << "Steering:"
-              << "\t" << records[i].actual.steering << "\n";
-        local << "---------------------------------------------\n";
-        if (i == 0 ||
-            equals(records[i - 1].signature, records[i].signature) == false)
-            sstream << local.str();
     }
-    // cout << sstream.str();
-    MyFile << sstream.str();
+    printResults(&records);
     return 0;
 }
