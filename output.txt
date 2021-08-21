@@ -1,127 +1,528 @@
 ---------------------------------------------
 
-Total: 88	Thrust: 0	Steer: 88	Missing: 0
+Total: 179	Thrust: 0	Steer: 179	Missing: 1
 
 	Thrust:   0
-	Steering: 201120
+	Steering: 449760
 
 
-	76	Bufaer Atomic Steering
-	12	Basrem Atomic Steering
-
----------------------------------------------
-
-Total: 88	Thrust: 16	Steer: 72	Missing: 0
-
-	Thrust:   21600
-	Steering: 141540
-
-	16	X1700 Ion Thruster
-
-	12	Basrem Atomic Steering
-	60	A525 Atomic Steering
+	14	Crucible Class Thruster	(Remnant)
+	89	Steering (Stellar Class)	(Korath)
+	76	Bufaer Atomic Steering	(Hai atomic)
 
 ---------------------------------------------
 
-Total: 87	Thrust: 18	Steer: 69	Missing: 1
+Total: 180	Thrust: 9	Steer: 171	Missing: 0
+
+	Thrust:   23760
+	Steering: 427836
+
+	9	Small Thrust Module	(Coalition)
+
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 14	Steer: 165	Missing: 1
+
+	Thrust:   40320
+	Steering: 422880
+
+	14	Thruster (Asteroid Class)	(Korath)
+
+	89	Steering (Stellar Class)	(Korath)
+	76	Bufaer Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 180	Thrust: 18	Steer: 162	Missing: 0
 
 	Thrust:   47520
-	Steering: 140100
+	Steering: 402084
 
-	18	Basrem Atomic Thruster
+	18	Basrem Atomic Thruster	(Hai atomic)
 
-	49	Bondir Atomic Steering
-	20	Benga Atomic Steering
-
----------------------------------------------
-
-Total: 87	Thrust: 22	Steer: 65	Missing: 1
-
-	Thrust:   55400
-	Steering: 129000
-
-	22	A120 Atomic Thruster
-
-	49	Bondir Atomic Steering
-	16	A125 Atomic Steering
+	14	Crucible Class Thruster	(Remnant)
+	7	Small Steering Miodule	(Coalition)
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
 
 ---------------------------------------------
 
-Total: 88	Thrust: 28	Steer: 60	Missing: 0
+Total: 179	Thrust: 20	Steer: 159	Missing: 1
 
-	Thrust:   84960
-	Steering: 123000
+	Thrust:   64800
+	Steering: 398604
 
-	28	Benga Atomic Thruster
+	20	Crucible Class Thruster	(Remnant)
 
-	60	A525 Atomic Steering
-
----------------------------------------------
-
-Total: 83	Thrust: 34	Steer: 49	Missing: 5
-
-	Thrust:   98280
-	Steering: 105480
-
-	34	A250 Atomic Thruster
-
-	49	Bondir Atomic Steering
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
+	18	Steering (Comet Class)	(Korath)
 
 ---------------------------------------------
 
-Total: 88	Thrust: 40	Steer: 48	Missing: 0
+Total: 179	Thrust: 24	Steer: 155	Missing: 1
 
-	Thrust:   102920
-	Steering: 86760
+	Thrust:   78480
+	Steering: 391356
 
-	18	Basrem Atomic Thruster
-	22	A120 Atomic Thruster
+	24	Thruster (Comet Class)	(Korath)
 
-	32	Biroo Atomic Steering
-	16	A125 Atomic Steering
+	14	Crucible Class Thruster	(Remnant)
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
 
 ---------------------------------------------
 
-Total: 88	Thrust: 44	Steer: 44	Missing: 0
+Total: 180	Thrust: 29	Steer: 151	Missing: 0
+
+	Thrust:   88560
+	Steering: 381276
+
+	20	Crucible Class Thruster	(Remnant)
+	9	Small Thrust Module	(Coalition)
+
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
+	10	Steering (Asteroid Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 32	Steer: 148	Missing: 0
+
+	Thrust:   94320
+	Steering: 375204
+
+	32	Large Thrust Module	(Coalition)
+
+	7	Small Steering Miodule	(Coalition)
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 39	Steer: 141	Missing: 0
+
+	Thrust:   133200
+	Steering: 364476
+
+	39	Forge Class Thruster	(Remnant)
+
+	89	Steering (Stellar Class)	(Korath)
+	52	Steering (Planetary Class)	(Korath)
+
+---------------------------------------------
+
+Total: 178	Thrust: 40	Steer: 138	Missing: 2
+
+	Thrust:   148320
+	Steering: 345780
+
+	40	Thruster (Lunar Class)	(Korath)
+
+	89	Steering (Stellar Class)	(Korath)
+	49	Bondir Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 179	Thrust: 44	Steer: 135	Missing: 1
 
 	Thrust:   149400
-	Steering: 81780
+	Steering: 331548
 
-	44	Biroo Atomic Thruster
+	44	Biroo Atomic Thruster	(Hai atomic)
 
-	32	Biroo Atomic Steering
-	12	Basrem Atomic Steering
-
----------------------------------------------
-
-Total: 85	Thrust: 53	Steer: 32	Missing: 3
-
-	Thrust:   171360
-	Steering: 63240
-
-	53	A370 Atomic Thruster
-
-	32	Biroo Atomic Steering
+	28	Forge Class Thruster	(Remnant)
+	89	Steering (Stellar Class)	(Korath)
+	18	Steering (Comet Class)	(Korath)
 
 ---------------------------------------------
 
-Total: 88	Thrust: 63	Steer: 25	Missing: 0
+Total: 180	Thrust: 49	Steer: 131	Missing: 0
+
+	Thrust:   172080
+	Steering: 324300
+
+	9	Small Thrust Module	(Coalition)
+	40	Thruster (Lunar Class)	(Korath)
+
+	28	Forge Class Thruster	(Remnant)
+	14	Crucible Class Thruster	(Remnant)
+	89	Steering (Stellar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 54	Steer: 126	Missing: 0
+
+	Thrust:   188640
+	Steering: 314388
+
+	40	Thruster (Lunar Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	7	Small Steering Miodule	(Coalition)
+	89	Steering (Stellar Class)	(Korath)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 60	Steer: 119	Missing: 1
+
+	Thrust:   213120
+	Steering: 303660
+
+	20	Crucible Class Thruster	(Remnant)
+	40	Thruster (Lunar Class)	(Korath)
+
+	89	Steering (Stellar Class)	(Korath)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 63	Steer: 117	Missing: 0
 
 	Thrust:   237960
-	Steering: 41220
+	Steering: 297420
 
-	63	Bondir Atomic Thruster
+	63	Bondir Atomic Thruster	(Hai atomic)
 
-	25	A255 Atomic Steering
+	28	Forge Class Thruster	(Remnant)
+	89	Steering (Stellar Class)	(Korath)
 
 ---------------------------------------------
 
-Total: 82	Thrust: 82	Steer: 0	Missing: 6
+Total: 179	Thrust: 69	Steer: 110	Missing: 1
 
-	Thrust:   294840
+	Thrust:   288000
+	Steering: 277908
+
+	69	Thruster (Planetary Class)	(Korath)
+
+	14	Crucible Class Thruster	(Remnant)
+	7	Small Steering Miodule	(Coalition)
+	89	Steering (Stellar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 78	Steer: 101	Missing: 1
+
+	Thrust:   311760
+	Steering: 258840
+
+	9	Small Thrust Module	(Coalition)
+	69	Thruster (Planetary Class)	(Korath)
+
+	89	Steering (Stellar Class)	(Korath)
+	12	Basrem Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 179	Thrust: 83	Steer: 96	Missing: 1
+
+	Thrust:   328320
+	Steering: 251028
+
+	69	Thruster (Planetary Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	7	Small Steering Miodule	(Coalition)
+	89	Steering (Stellar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 178	Thrust: 89	Steer: 89	Missing: 2
+
+	Thrust:   352800
+	Steering: 240300
+
+	20	Crucible Class Thruster	(Remnant)
+	69	Thruster (Planetary Class)	(Korath)
+
+	89	Steering (Stellar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 93	Steer: 86	Missing: 1
+
+	Thrust:   366480
+	Steering: 199380
+
+	69	Thruster (Planetary Class)	(Korath)
+	24	Thruster (Comet Class)	(Korath)
+
+	10	Steering (Asteroid Class)	(Korath)
+	76	Bufaer Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 180	Thrust: 97	Steer: 83	Missing: 0
+
+	Thrust:   372960
+	Steering: 193308
+
+	69	Thruster (Planetary Class)	(Korath)
+	28	Benga Atomic Thruster	(Hai atomic)
+
+	7	Small Steering Miodule	(Coalition)
+	76	Bufaer Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 180	Thrust: 98	Steer: 82	Missing: 0
+
+	Thrust:   376560
+	Steering: 187536
+
+	20	Crucible Class Thruster	(Remnant)
+	9	Small Thrust Module	(Coalition)
+	69	Thruster (Planetary Class)	(Korath)
+
+	52	Steering (Planetary Class)	(Korath)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 104	Steer: 76	Missing: 0
+
+	Thrust:   432360
+	Steering: 182580
+
+	104	Bufaer Atomic Thruster	(Hai atomic)
+
+	76	Bufaer Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 179	Thrust: 109	Steer: 70	Missing: 1
+
+	Thrust:   436320
+	Steering: 158304
+
+	69	Thruster (Planetary Class)	(Korath)
+	40	Thruster (Lunar Class)	(Korath)
+
+	52	Steering (Planetary Class)	(Korath)
+	18	Steering (Comet Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 113	Steer: 66	Missing: 1
+
+	Thrust:   456120
+	Steering: 151056
+
+	9	Small Thrust Module	(Coalition)
+	104	Bufaer Atomic Thruster	(Hai atomic)
+
+	14	Crucible Class Thruster	(Remnant)
+	52	Steering (Planetary Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 118	Steer: 62	Missing: 0
+
+	Thrust:   552240
+	Steering: 140976
+
+	118	Thruster (Stellar Class)	(Korath)
+
+	52	Steering (Planetary Class)	(Korath)
+	10	Steering (Asteroid Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 127	Steer: 52	Missing: 1
+
+	Thrust:   576000
+	Steering: 124176
+
+	9	Small Thrust Module	(Coalition)
+	118	Thruster (Stellar Class)	(Korath)
+
+	52	Steering (Planetary Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 132	Steer: 48	Missing: 0
+
+	Thrust:   592560
+	Steering: 97488
+
+	118	Thruster (Stellar Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	30	Steering (Lunar Class)	(Korath)
+	18	Steering (Comet Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 136	Steer: 44	Missing: 0
+
+	Thrust:   599760
+	Steering: 90240
+
+	118	Thruster (Stellar Class)	(Korath)
+	18	Basrem Atomic Thruster	(Hai atomic)
+
+	14	Crucible Class Thruster	(Remnant)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 138	Steer: 42	Missing: 0
+
+	Thrust:   617040
+	Steering: 84000
+
+	20	Crucible Class Thruster	(Remnant)
+	118	Thruster (Stellar Class)	(Korath)
+
+	28	Forge Class Thruster	(Remnant)
+	14	Crucible Class Thruster	(Remnant)
+
+---------------------------------------------
+
+Total: 179	Thrust: 142	Steer: 37	Missing: 1
+
+	Thrust:   630720
+	Steering: 74088
+
+	118	Thruster (Stellar Class)	(Korath)
+	24	Thruster (Comet Class)	(Korath)
+
+	7	Small Steering Miodule	(Coalition)
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 150	Steer: 30	Missing: 0
+
+	Thrust:   646560
+	Steering: 63360
+
+	32	Large Thrust Module	(Coalition)
+	118	Thruster (Stellar Class)	(Korath)
+
+	30	Steering (Lunar Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 152	Steer: 28	Missing: 0
+
+	Thrust:   657360
+	Steering: 57120
+
+	20	Crucible Class Thruster	(Remnant)
+	118	Thruster (Stellar Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	28	Forge Class Thruster	(Remnant)
+
+---------------------------------------------
+
+Total: 180	Thrust: 155	Steer: 25	Missing: 0
+
+	Thrust:   660960
+	Steering: 44856
+
+	9	Small Thrust Module	(Coalition)
+	118	Thruster (Stellar Class)	(Korath)
+	28	Benga Atomic Thruster	(Hai atomic)
+
+	7	Small Steering Miodule	(Coalition)
+	18	Steering (Comet Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 156	Steer: 24	Missing: 0
+
+	Thrust:   671040
+	Steering: 43680
+
+	118	Thruster (Stellar Class)	(Korath)
+	24	Thruster (Comet Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	14	Crucible Class Thruster	(Remnant)
+	10	Steering (Asteroid Class)	(Korath)
+
+---------------------------------------------
+
+Total: 179	Thrust: 158	Steer: 21	Missing: 1
+
+	Thrust:   700560
+	Steering: 37608
+
+	118	Thruster (Stellar Class)	(Korath)
+	40	Thruster (Lunar Class)	(Korath)
+
+	14	Crucible Class Thruster	(Remnant)
+	7	Small Steering Miodule	(Coalition)
+
+---------------------------------------------
+
+Total: 180	Thrust: 162	Steer: 18	Missing: 0
+
+	Thrust:   701640
+	Steering: 34128
+
+	118	Thruster (Stellar Class)	(Korath)
+	44	Biroo Atomic Thruster	(Hai atomic)
+
+	18	Steering (Comet Class)	(Korath)
+
+---------------------------------------------
+
+Total: 180	Thrust: 166	Steer: 14	Missing: 0
+
+	Thrust:   709200
+	Steering: 26880
+
+	39	Forge Class Thruster	(Remnant)
+	9	Small Thrust Module	(Coalition)
+	118	Thruster (Stellar Class)	(Korath)
+
+	14	Crucible Class Thruster	(Remnant)
+
+---------------------------------------------
+
+Total: 179	Thrust: 167	Steer: 12	Missing: 1
+
+	Thrust:   724320
+	Steering: 18540
+
+	9	Small Thrust Module	(Coalition)
+	118	Thruster (Stellar Class)	(Korath)
+	40	Thruster (Lunar Class)	(Korath)
+
+	12	Basrem Atomic Steering	(Hai atomic)
+
+---------------------------------------------
+
+Total: 179	Thrust: 172	Steer: 7	Missing: 1
+
+	Thrust:   740880
+	Steering: 10728
+
+	118	Thruster (Stellar Class)	(Korath)
+	40	Thruster (Lunar Class)	(Korath)
+	14	Thruster (Asteroid Class)	(Korath)
+
+	7	Small Steering Miodule	(Coalition)
+
+---------------------------------------------
+
+Total: 178	Thrust: 178	Steer: 0	Missing: 2
+
+	Thrust:   765360
 	Steering: 0
 
-	82	A520 Atomic Thruster
+	20	Crucible Class Thruster	(Remnant)
+	118	Thruster (Stellar Class)	(Korath)
+	40	Thruster (Lunar Class)	(Korath)
 
 
 ---------------------------------------------

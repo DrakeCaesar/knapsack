@@ -259,11 +259,13 @@ void printResults(vector<record> *records) {
         local << "\tSteering: " << (*records)[i].steer << "\n\n";
 
         for (auto &engine : (*records)[i].thrusters) {
-            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+            local << "\t" << engine.weight << "\t" << engine.name << "\t("
+                  << engine.type << ")\n";
         }
         local << "\n";
         for (auto &engine : (*records)[i].steering) {
-            local << "\t" << engine.weight << "\t" << engine.name << "\n";
+            local << "\t" << engine.weight << "\t" << engine.name << "\t("
+                  << engine.type << ")\n";
         }
         local << "\n";
 
@@ -283,9 +285,10 @@ void printResults(vector<record> *records) {
 
 // Driver code
 int main(int argc, char *argv[]) {
+    // cout << argc << endl;
     int W;
     vector<string> match;
-    if (argc <= 2) {
+    if (argc < 2) {
         W = 88;
         match = {"Human", "hai"};
     } else {
@@ -301,7 +304,7 @@ int main(int argc, char *argv[]) {
     vector<engine> thrustersFiltered;
     vector<engine> steeringFiltered;
 
-    if (argc > 2 && iequals(argv[2], "all")) {
+    if (argc == 2 || (argc > 2 && iequals(argv[2], "all"))) {
         thrustersFiltered = thrusters;
         steeringFiltered = steering;
     } else {
