@@ -224,6 +224,11 @@ void knapsack(int W, vector<engine> engines, string *signature, record *record,
     free(K);
 }
 
+bool byWeight(const engine &a, const engine &b) {
+    // smallest comes first
+    return a.weight > b.weight;
+}
+
 void printResults(vector<record> *records) {
     stringstream sstream;
 
@@ -258,11 +263,16 @@ void printResults(vector<record> *records) {
         local << "\tThrust:   " << (*records)[i].thrust << "\n";
         local << "\tSteering: " << (*records)[i].steer << "\n\n";
 
+        std::sort((*records)[i].thrusters.begin(),
+                  (*records)[i].thrusters.end(), byWeight);
         for (auto &engine : (*records)[i].thrusters) {
             local << "\t" << engine.weight << "\t" << engine.name << "\t("
                   << engine.type << ")\n";
         }
         local << "\n";
+
+        std::sort((*records)[i].steering.begin(), (*records)[i].steering.end(),
+                  byWeight);
         for (auto &engine : (*records)[i].steering) {
             local << "\t" << engine.weight << "\t" << engine.name << "\t("
                   << engine.type << ")\n";
@@ -310,6 +320,24 @@ int main(int argc, char *argv[]) {
     } else {
         thrustersFiltered = findMatch(thrusters, match);
         steeringFiltered = findMatch(steering, match);
+    }
+
+    int temp = (int)thrustersFiltered.size();
+    for (int i = 0; i < 99; i++) {
+        for (int j = 0; j < temp; j++) {
+            thrustersFiltered.push_back(thrustersFiltered[j]);
+        }
+    }
+
+    temp = (int)steeringFiltered.size();
+    for (int i = 0; i < 99; i++) {
+        for (int j = 0; j < temp; j++) {
+            steeringFiltered.push_back(steeringFiltered[j]);
+        }
+    }
+
+    for (int i = 0; i < steeringFiltered.size(); i++) {
+        // cout << thrustersFiltered[i].name << endl;
     }
 
     vector<record> records;
