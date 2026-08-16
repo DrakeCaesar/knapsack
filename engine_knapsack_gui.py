@@ -63,7 +63,7 @@ class EnginePickerApp:
         self.fg = "#e0e0e0"
         self.entry_bg = "#2d2d2d"
         self.select_bg = "#264f78"
-        self.mono_font = (self._find_fira_code_family(), 9)
+        self.mono_font = self._pick_mono_font()
 
         self._apply_theme()
         self._build_controls()
@@ -77,18 +77,14 @@ class EnginePickerApp:
 
         self._start_loading()
 
-    def _find_fira_code_family(self):
-        """Return the installed Fira Code Nerd Font family name, if present."""
+    def _pick_mono_font(self):
+        """Return the Fira Code Nerd Font descriptor, or TkFixedFont."""
         families = set(tkfont.families(self.root))
-        for candidate in ("FiraCode Nerd Font", "Fira Code Nerd Font",
-                          "FiraCode Nerd Font Mono", "Fira Code Nerd Font Mono"):
-            if candidate in families:
-                return candidate
-        for name in sorted(families):
-            lower = name.lower()
-            if "fira" in lower and "nerd" in lower:
-                return name
-        return "Fira Code"
+        if "FiraCode Nerd Font" in families:
+            return ("FiraCode Nerd Font", 9)
+        if "Fira Code Nerd Font" in families:
+            return ("Fira Code Nerd Font", 9)
+        return "TkFixedFont"
 
     # --------------------------------------------------------- persistence
     def _load_config(self):
