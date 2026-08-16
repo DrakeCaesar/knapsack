@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,7 +23,7 @@ import engine_knapsack as ek
 
 
 class EnginePickerApp:
-    ROW_H = 42
+    ROW_H = 30
     ENGINE_ROW_H = 168
     THRUST_COLOR = "#4a90d9"
     TURN_COLOR = "#e08a4a"
@@ -62,6 +63,7 @@ class EnginePickerApp:
         self.fg = "#e0e0e0"
         self.entry_bg = "#2d2d2d"
         self.select_bg = "#264f78"
+        self.mono_font = (self._find_fira_code_family(), 9)
 
         self._apply_theme()
         self._build_controls()
@@ -74,6 +76,19 @@ class EnginePickerApp:
         root.bind("<Down>", self._on_down)
 
         self._start_loading()
+
+    def _find_fira_code_family(self):
+        """Return the installed Fira Code Nerd Font family name, if present."""
+        families = set(tkfont.families(self.root))
+        for candidate in ("FiraCode Nerd Font", "Fira Code Nerd Font",
+                          "FiraCode Nerd Font Mono", "Fira Code Nerd Font Mono"):
+            if candidate in families:
+                return candidate
+        for name in sorted(families):
+            lower = name.lower()
+            if "fira" in lower and "nerd" in lower:
+                return name
+        return "Fira Code"
 
     # --------------------------------------------------------- persistence
     def _load_config(self):
@@ -408,15 +423,19 @@ class EnginePickerApp:
                 canvas.create_rectangle(2, y, width - 2, y + self.ROW_H - 2,
                                         fill=self.select_bg, outline="")
 
-            label = "T {:7.1f}   U {:7.1f}".format(
-                result["thrust"], result["turn"])
-            canvas.create_text(6, y + 2, anchor="nw", text=label, fill=self.fg)
-
             thrust_len = int(bar_width * result["thrust"] / max_thrust)
             turn_len = int(bar_width * result["turn"] / max_turn)
-            canvas.create_rectangle(bar_x, y + 20, bar_x + thrust_len, y + 26,
+
+            canvas.create_text(6, y + 1, anchor="nw",
+                               text="T {:6.1f}".format(result["thrust"]),
+                               fill=self.fg, font=self.mono_font)
+            canvas.create_rectangle(bar_x, y + 4, bar_x + thrust_len, y + 10,
                                     fill=self.THRUST_COLOR, outline="")
-            canvas.create_rectangle(bar_x, y + 30, bar_x + turn_len, y + 36,
+
+            canvas.create_text(6, y + 15, anchor="nw",
+                               text="U {:6.1f}".format(result["turn"]),
+                               fill=self.fg, font=self.mono_font)
+            canvas.create_rectangle(bar_x, y + 18, bar_x + turn_len, y + 24,
                                     fill=self.TURN_COLOR, outline="")
 
             y += self.ROW_H
