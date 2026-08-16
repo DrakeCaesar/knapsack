@@ -25,6 +25,7 @@ import engine_knapsack as ek
 class EnginePickerApp:
     ROW_H = 30
     ENGINE_ROW_H = 168
+    ENGINE_HEADER_H = 26
     THRUST_COLOR = "#4a90d9"
     TURN_COLOR = "#e08a4a"
 
@@ -50,7 +51,7 @@ class EnginePickerApp:
         self.images_dir = os.path.normpath(os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "..", "images"))
         self._photo_cache = {}
-        self.engine_entries = []
+        self.engine_rows = []
         self.engine_scroll = 0
 
         self.factions = []
@@ -352,7 +353,7 @@ class EnginePickerApp:
         self.compute_btn.config(state=tk.NORMAL)
         if not results:
             self.status_var.set("No matching engines found.")
-            self.engine_entries = []
+            self.engine_rows = []
             self.redraw_engines()
             self._update_engine_scrollbar()
         else:
@@ -440,12 +441,33 @@ class EnginePickerApp:
         result = self.results[index]
         counts = ek._recipe(result["node"], self.engines)
 
-        entries = []
+        dual = []
+        thrusters = []
+        steering = []
         for count, engine in counts.values():
-            entries.append((count, engine, self._thumbnail(engine)))
-        entries.sort(key=lambda entry: -entry[1]["weight"])
+            entry = (count, engine, self._thumbnail(engine))
+            if engine["thrust"] > 0 and engine["turn"] > 0:
+                dual.append(entry)
+            elif engine["thrust"] > 0:
+                thrusters.append(entry)
+            else:
+                steering.append(entry)
+        dual.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["turn"]))
+        thrusters.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["weight"]))
+        steering.sort(key=lambda entry: (-entry[1]["turn"], -entry[1]["weight"]))
 
-        self.engine_entries = entries
+        rows = []
+        if dual:
+            rows.append(("header", "Multi-use engines"))
+            rows.extend(("engine", *entry) for entry in dual)
+        if thrusters:
+            rows.append(("header", "Thrusters"))
+            rows.extend(("engine", *entry) for entry in thrusters)
+        if steering:
+            rows.append(("header", "Steering"))
+            rows.extend(("engine", *entry) for entry in steering)
+
+        self.engine_rows = rows
         self.engine_scroll = 0
 
         self.summary_var.set(
@@ -484,19 +506,29 @@ class EnginePickerApp:
     def redraw_engines(self):
         canvas = self.engine_canvas
         canvas.delete("all")
-        if not self.engine_entries:
+        if not self.engine_rows:
             canvas.create_text(10, 10, anchor="nw", text="Select a result.",
                                fill=self.fg)
             return
 
+        width = max(120, canvas.winfo_width())
         y = 4 - self.engine_scroll
-        for count, engine, photo in self.engine_entries:
-            if y + self.ENGINE_ROW_H < 0:
-                y += self.ENGINE_ROW_H
+        for row in self.engine_rows:
+            height = self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
+            if y + height < 0:
+                y += height
                 continue
             if y > canvas.winfo_height():
                 break
 
+            if row[0] == "header":
+                canvas.create_text(8, y + 2, anchor="nw", text=row[1],
+                                   fill="#7fb2dd", font=self.mono_font)
+                canvas.create_line(8, y + 21, width - 8, y + 21, fill="#444444")
+                y += height
+                continue
+
+            _, count, engine, photo = row
             center_y = y + self.ENGINE_ROW_H // 2
             if photo is not None:
                 canvas.create_image(86, center_y, image=photo, anchor="center")
@@ -510,19 +542,19 @@ class EnginePickerApp:
             canvas.create_text(176, y + 66, anchor="nw", text=line1, fill=self.fg)
             canvas.create_text(176, y + 88, anchor="nw", text=line2, fill="#b0b0b0")
 
-            y += self.ENGINE_ROW_H
+            y += height
 
     def _on_engine_wheel(self, event):
-        if not self.engine_entries:
+        if not self.engine_rows:
             return
         step = -1 if event.delta > 0 else 1
-        self.engine_scroll += step * self.ENGINE_ROW_H
+        self.engine_scroll += step * 40
         self._clamp_engine_scroll()
         self.redraw_engines()
         self._update_engine_scrollbar()
 
     def _on_engine_scrollbar(self, action, *args):
-        if not self.engine_entries:
+        if not self.engine_rows:
             return
         total = self._max_engine_scroll()
         if action == "moveto":
@@ -530,17 +562,19 @@ class EnginePickerApp:
         elif action == "scroll":
             amount = int(args[1])
             if args[2] == "units":
-                self.engine_scroll += amount * self.ENGINE_ROW_H
+                self.engine_scroll += amount * 40
             else:
                 self.engine_scroll += amount * max(1, self.engine_canvas.winfo_height())
         self._clamp_engine_scroll()
         self.redraw_engines()
         self._update_engine_scrollbar()
 
+    def _engine_content_height(self):
+        return sum(self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
+                   for row in self.engine_rows)
+
     def _max_engine_scroll(self):
-        visible = self.engine_canvas.winfo_height()
-        content = len(self.engine_entries) * self.ENGINE_ROW_H
-        return max(0, content - visible)
+        return max(0, self._engine_content_height() - self.engine_canvas.winfo_height())
 
     def _clamp_engine_scroll(self):
         self.engine_scroll = max(0, min(self.engine_scroll, self._max_engine_scroll()))
