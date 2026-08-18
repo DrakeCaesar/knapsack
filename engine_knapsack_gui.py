@@ -5,7 +5,7 @@ Run from the repository root (or anywhere) with:
 
     python knapsack/engine_knapsack_gui.py
 
-The window has two tabs:
+The window has three tabs:
 
   * "Engine Picker" - lists every non-dominated (thrust, turn) combination,
     each with two small bars: blue for forward thrust and orange for turning.
@@ -13,6 +13,9 @@ The window has two tabs:
 
   * "Ship Bunks" - lists every ship by its maximum achievable crew capacity,
     showing the ship sprite next to the table.
+
+  * "Generators" - compares the stats of every generator outfit, showing the
+    outfit thumbnail next to the table.
 """
 
 import json
@@ -59,6 +62,19 @@ SHIP_COLUMNS = [
     ("Shields", "shields", 80, "e"),
     ("Hull", "hull", 70, "e"),
     ("Crew", "crew", 60, "e"),
+]
+
+# Generator comparison table columns: (header, row key, width, anchor).
+GENERATOR_COLUMNS = [
+    ("Name", "name", 180, "w"),
+    ("Faction", "faction", 110, "w"),
+    ("Cost", "cost", 90, "e"),
+    ("Mass", "mass", 70, "e"),
+    ("Space", "space", 70, "e"),
+    ("Energy/s", "energy", 80, "e"),
+    ("Heat/s", "heat", 70, "e"),
+    ("Energy/Space", "energy_per_space", 100, "e"),
+    ("Energy/Heat", "energy_per_heat", 100, "e"),
 ]
 
 
@@ -298,11 +314,60 @@ def dedupe_rows(rows):
     return merged
 
 
+def build_generator_rows(outfits):
+    """Return one row per generator outfit with comparable stats."""
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("series") != "Generators":
+            continue
+
+        energy = number(attrs, "energy generation")
+        heat = number(attrs, "heat generation")
+        space = max(0.0, -number(attrs, "outfit space"))
+        mass = number(attrs, "mass")
+        cost = number(attrs, "cost")
+        thumbnail = attrs.get("thumbnail", "")
+
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "cost": cost,
+            "mass": mass,
+            "space": space,
+            "energy": energy,
+            "heat": heat,
+            "energy_per_space": energy / space if space > 0 else 0.0,
+            "energy_per_heat": energy / heat if heat > 0 else 0.0,
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (-row["energy"], row["name"].lower()))
+    return rows
+
+
 def format_number(value):
     """Format a numeric value with thousands separators and no decimal noise."""
     if value == int(value):
         return f"{int(value):,}"
     return f"{value:,.1f}"
+
+
+def format_ratio(value):
+    """Format a derived ratio with a few decimal places."""
+    return "{:.3f}".format(value).rstrip("0").rstrip(".")
+
+
+def find_plugin_images_dir():
+    """Locate the images folder of the first plugin that ships game images."""
+    plugins_dir = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "plugins"))
+    if not os.path.isdir(plugins_dir):
+        return None
+    for name in sorted(os.listdir(plugins_dir)):
+        images = os.path.normpath(os.path.join(plugins_dir, name, "images"))
+        if os.path.isdir(images):
+            return images
+    return None
 
 
 def apply_theme(root):
@@ -1263,14 +1328,7 @@ class ShipBunksApp(ttk.Frame):
 
     def _find_plugin_images_dir(self):
         """Locate the images folder of the first plugin that ships sprites."""
-        plugins_dir = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "plugins"))
-        if not os.path.isdir(plugins_dir):
-            return None
-        for name in sorted(os.listdir(plugins_dir)):
-            images = os.path.normpath(os.path.join(plugins_dir, name, "images"))
-            if os.path.isdir(os.path.join(images, "ship")):
-                return images
-        return None
+        return find_plugin_images_dir()
 
     def _first_frame(self, images_dir, sprite, marker):
         """Find the lowest-numbered animation frame for a sprite path."""
@@ -1358,6 +1416,378 @@ class ShipBunksApp(ttk.Frame):
         self.status_var.set("{} / {} ships loaded".format(loaded, total))
 
 
+class GeneratorsApp(ttk.Frame):
+    """Tab that compares the stats of every generator outfit."""
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.root = master.winfo_toplevel()
+
+        self.config_path = os.path.join(os.path.expanduser("~"),
+                                        ".endless_sky_generators.json")
+        self._load_config()
+
+        self.data_dir = DATA_DIR
+        self.images_dir = IMAGES_DIR
+        self.plugin_images_dir = find_plugin_images_dir()
+
+        self.outfits = []
+        self.all_rows = []
+        self.rows = []
+        self.factions = []
+        self.faction_vars = {}
+        self._photo_cache = {}
+        self._current_photo = None
+        self._current_row = None
+        self._sort_key = "energy"
+        self._sort_reverse = True
+        self.preview_size = 240
+        self._preload_paths = []
+        self._preload_index = 0
+        self._preload_attempted = set()
+
+        self._build_ui()
+        self._start_loading()
+
+    def _load_config(self):
+        self.config = {}
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as handle:
+                self.config = json.load(handle)
+        except (OSError, ValueError):
+            self.config = {}
+
+    def _save_config(self):
+        data = {}
+        if self.faction_vars:
+            data["factions"] = [name for name, var in self.faction_vars.items()
+                                if var.get()]
+        elif "factions" in self.config:
+            data["factions"] = self.config["factions"]
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+        except OSError:
+            pass
+
+    def _on_close(self):
+        self._save_config()
+
+    def _build_ui(self):
+        bar = ttk.Frame(self, padding=8)
+        bar.pack(side=tk.TOP, fill=tk.X)
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
+
+        self._build_faction_bar()
+
+        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # Left: sortable table of generators.
+        table_frame = ttk.Frame(paned)
+        columns = [key for _, key, _, _ in GENERATOR_COLUMNS]
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings",
+                                 selectmode="browse")
+        for header, key, width, anchor in GENERATOR_COLUMNS:
+            self.tree.heading(key, text=header, anchor=anchor,
+                              command=lambda k=key: self._on_sort(k))
+            self.tree.column(key, width=width, anchor=anchor,
+                             stretch=(key in ("name", "faction")))
+
+        yscroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
+                                command=self.tree.yview)
+        xscroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
+                                command=self.tree.xview)
+        self.tree.configure(yscrollcommand=yscroll.set,
+                            xscrollcommand=xscroll.set)
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+        paned.add(table_frame, weight=3)
+
+        # Right: outfit thumbnail preview.
+        preview = ttk.Frame(paned, padding=6)
+        self.name_var = tk.StringVar(value="")
+        ttk.Label(preview, textvariable=self.name_var,
+                  font=("TkDefaultFont", 11, "bold")).pack(side=tk.TOP,
+                                                           anchor="w")
+
+        self.canvas = tk.Canvas(preview, background=BG, width=260,
+                                highlightthickness=1,
+                                highlightbackground="#333333")
+        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=6)
+
+        self.stats_var = tk.StringVar(value="")
+        ttk.Label(preview, textvariable=self.stats_var,
+                  justify=tk.LEFT).pack(side=tk.TOP, anchor="w")
+        paned.add(preview, weight=2)
+
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Button-3>", self._on_right_click)
+        self.canvas.bind("<Configure>", lambda event: self._redraw_preview())
+
+        self.context_menu = tk.Menu(self.tree, tearoff=0,
+                                    background=ENTRY_BG, foreground=FG,
+                                    activebackground=SELECT_BG,
+                                    activeforeground="#ffffff")
+        self.context_menu.add_command(label="Copy Name",
+                                      command=self._copy_name)
+
+    def _start_loading(self):
+        self.status_var.set("Loading outfits...")
+        threading.Thread(target=self._load_worker, daemon=True).start()
+
+    def _load_worker(self):
+        try:
+            outfits = ek.parse_outfits(self.data_dir)
+            rows = build_generator_rows(outfits)
+            self.root.after(0, self._load_done, outfits, rows)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._load_error, str(exc))
+
+    def _load_done(self, outfits, rows):
+        self.outfits = outfits
+        self.all_rows = rows
+        self._build_faction_checkboxes(sorted({row["faction"] for row in rows}))
+        self._refresh_rows()
+
+    def _load_error(self, message):
+        self.status_var.set("Error: {}".format(message))
+
+    def _build_faction_bar(self):
+        self.checkbox_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
+        self.checkbox_frame.pack(side=tk.TOP, fill=tk.X)
+
+    def _build_faction_checkboxes(self, factions):
+        for child in self.checkbox_frame.winfo_children():
+            child.destroy()
+
+        self.factions = factions
+        self.faction_vars = {}
+
+        if "factions" in self.config:
+            saved = set(self.config["factions"])
+        else:
+            saved = None
+
+        columns = 6
+        for index, name in enumerate(factions):
+            var = tk.BooleanVar(value=(saved is None or name in saved))
+            var.trace_add("write", self._on_faction_toggled)
+            self.faction_vars[name] = var
+            check = ttk.Checkbutton(self.checkbox_frame, text=name, variable=var)
+            check.grid(row=index // columns, column=index % columns,
+                       sticky="w", padx=2, pady=1)
+
+    def _on_faction_toggled(self, *args):
+        self._save_config()
+        self._refresh_rows()
+
+    def _current_factions(self):
+        if not self.factions:
+            return None
+        checked = {name for name, var in self.faction_vars.items() if var.get()}
+        if not checked:
+            return set()
+        if len(checked) == len(self.factions):
+            return None
+        return checked
+
+    def _refresh_rows(self):
+        filters = self._current_factions()
+        if filters is None:
+            self.rows = list(self.all_rows)
+        else:
+            self.rows = [row for row in self.all_rows if row["faction"] in filters]
+        self._apply_sort()
+        self._populate()
+        self._start_preload()
+
+    def _on_sort(self, key):
+        if self._sort_key == key:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_key = key
+            self._sort_reverse = key not in ("name", "faction")
+        self._apply_sort()
+        self._populate()
+
+    def _apply_sort(self):
+        key = self._sort_key
+        reverse = self._sort_reverse
+
+        def sort_value(row):
+            value = row.get(key, "")
+            return value.lower() if isinstance(value, str) else value
+
+        self.rows.sort(key=sort_value, reverse=reverse)
+
+    def _populate(self):
+        self.tree.delete(*self.tree.get_children())
+        for index, row in enumerate(self.rows):
+            values = []
+            for _, key, _, _ in GENERATOR_COLUMNS:
+                value = row[key]
+                if isinstance(value, str):
+                    values.append(value)
+                elif key in ("energy_per_space", "energy_per_heat"):
+                    values.append(format_ratio(value))
+                else:
+                    values.append(format_number(value))
+            self.tree.insert("", "end", iid=str(index), values=values)
+
+        if self.rows:
+            self.tree.selection_set("0")
+            self.tree.focus("0")
+            self._show_preview(self.rows[0])
+        else:
+            self._current_row = None
+            self.name_var.set("")
+            self.stats_var.set("")
+            self._redraw_preview()
+
+    def _on_select(self, event):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        self._show_preview(self.rows[int(selection[0])])
+
+    def _on_right_click(self, event):
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.tree.selection_set(row_id)
+        self.tree.focus(row_id)
+        self._show_preview(self.rows[int(row_id)])
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def _copy_name(self):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        name = self.rows[int(selection[0])]["name"]
+        self.root.clipboard_clear()
+        self.root.clipboard_append(name)
+        self.root.update()
+
+    def _show_preview(self, row):
+        self._current_row = row
+        self.name_var.set(row["name"])
+
+        lines = [
+            "Faction: {}".format(row["faction"]),
+            "Cost: {}".format(format_number(row["cost"])),
+            "Mass: {}".format(format_number(row["mass"])),
+            "Space: {}".format(format_number(row["space"])),
+            "Energy/s: {}".format(format_number(row["energy"])),
+            "Heat/s: {}".format(format_number(row["heat"])),
+            "Energy/Space: {}".format(format_ratio(row["energy_per_space"])),
+            "Energy/Heat: {}".format(format_ratio(row["energy_per_heat"])),
+        ]
+        self.stats_var.set("\n".join(lines))
+        self._redraw_preview()
+
+    def _redraw_preview(self):
+        canvas = self.canvas
+        canvas.delete("all")
+        if self._current_row is None:
+            return
+
+        path = self._generator_image_path(self._current_row)
+        if path is None:
+            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
+            return
+
+        photo = self._load_photo(path, self.preview_size)
+        if photo is None:
+            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
+            return
+
+        self._current_photo = photo
+        canvas.create_image(canvas.winfo_width() // 2,
+                            canvas.winfo_height() // 2,
+                            image=photo, anchor="center")
+
+    def _generator_image_path(self, row):
+        thumbnail = row.get("thumbnail", "")
+        if not thumbnail:
+            return None
+        for images_dir in (self.plugin_images_dir, self.images_dir):
+            if not images_dir:
+                continue
+            marker = "@2x" if images_dir == self.plugin_images_dir else ""
+            path = os.path.join(images_dir, thumbnail + marker + ".png")
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def _load_photo(self, path, max_size):
+        if path in self._photo_cache:
+            return self._photo_cache[path]
+        try:
+            image = tk.PhotoImage(file=path)
+        except tk.TclError:
+            return None
+        largest = max(image.width(), image.height())
+        if largest > max_size:
+            factor = (largest + max_size - 1) // max_size
+            image = image.subsample(factor, factor)
+        self._photo_cache[path] = image
+        return image
+
+    def _start_preload(self):
+        """Queue every generator thumbnail for loading once, in the background."""
+        paths = []
+        seen = set()
+        for row in self.rows:
+            path = self._generator_image_path(row)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+        self._preload_paths = paths
+        self._preload_index = 0
+        self._preload_attempted = set()
+        self._update_preload_status()
+        if paths:
+            self.root.after(16, self._preload_next)
+
+    def _preload_next(self):
+        """Load one uncached thumbnail per tick, yielding to the event loop."""
+        while self._preload_index < len(self._preload_paths):
+            path = self._preload_paths[self._preload_index]
+            self._preload_index += 1
+            if path in self._photo_cache or path in self._preload_attempted:
+                continue
+            self._preload_attempted.add(path)
+            self._load_photo(path, self.preview_size)
+            self._update_preload_status()
+            break
+        if self._preload_index < len(self._preload_paths):
+            self.root.after(16, self._preload_next)
+        else:
+            self._update_preload_status()
+
+    def _update_preload_status(self):
+        total = len(self.rows)
+        if total == 0:
+            self.status_var.set("No generators.")
+            return
+        loaded = 0
+        for row in self.rows:
+            path = self._generator_image_path(row)
+            if path is None or path in self._photo_cache:
+                loaded += 1
+        self.status_var.set("{} / {} generators loaded".format(loaded, total))
+
+
 def main():
     root = tk.Tk()
     root.title("Endless Sky Tools")
@@ -1378,7 +1808,13 @@ def main():
     bunks_app.pack(fill=tk.BOTH, expand=True)
     notebook.add(bunks_tab, text="Ship Bunks")
 
+    generators_tab = ttk.Frame(notebook)
+    generators_app = GeneratorsApp(generators_tab)
+    generators_app.pack(fill=tk.BOTH, expand=True)
+    notebook.add(generators_tab, text="Generators")
+
     def on_close():
+        generators_app._on_close()
         engine_app._on_close()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
