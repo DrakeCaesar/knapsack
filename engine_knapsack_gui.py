@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""A small tkinter GUI for the engine knapsack solver.
+"""A tkinter GUI for Endless Sky data tools.
 
 Run from the repository root (or anywhere) with:
 
     python knapsack/engine_knapsack_gui.py
 
-The left panel lists every non-dominated (thrust, turn) combination, each with
-two small bars: blue for forward thrust and orange for turning. Click a row to
-see the exact engine list on the right.
+The window has two tabs:
+
+  * "Engine Picker" - lists every non-dominated (thrust, turn) combination,
+    each with two small bars: blue for forward thrust and orange for turning.
+    Click a row to see the exact engine list on the right.
+
+  * "Ship Bunks" - lists every ship by its maximum achievable crew capacity,
+    showing the ship sprite next to the table.
 """
 
 import json
@@ -21,26 +26,352 @@ from tkinter import ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import engine_knapsack as ek
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "data"))
+IMAGES_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "images"))
 
-class EnginePickerApp:
+# Dark theme colors shared by both tabs.
+BG = "#1e1e1e"
+FG = "#e0e0e0"
+ENTRY_BG = "#2d2d2d"
+SELECT_BG = "#264f78"
+
+# Outfit effects used by the ship bunks calculation.
+EXPANSION_OUTFIT_SPACE = 15.0
+EXPANSION_CARGO_SPACE = 20.0
+BUNK_ROOM_BUNKS = 4.0
+BUNK_ROOM_OUTFIT_SPACE = 20.0
+
+# Ship bunks table columns: (header, row key, width, anchor).
+SHIP_COLUMNS = [
+    ("Source Name", "name", 170, "w"),
+    ("In-Game Name", "display_name", 170, "w"),
+    ("Max Bunks", "max_bunks", 90, "e"),
+    ("Bunks", "bunks", 70, "e"),
+    ("Cargo", "cargo", 70, "e"),
+    ("Outfit", "outfit", 70, "e"),
+    ("Expansions", "expansions", 90, "e"),
+    ("Outfit Total", "outfit_total", 90, "e"),
+    ("Bunk Rooms", "bunk_rooms", 90, "e"),
+    ("Leftover Outfit", "leftover_outfit", 110, "e"),
+    ("Category", "category", 150, "w"),
+    ("Cost", "cost", 90, "e"),
+    ("Shields", "shields", 80, "e"),
+    ("Hull", "hull", 70, "e"),
+    ("Crew", "crew", 60, "e"),
+]
+
+
+def tokenize(line):
+    """Split a data-file line into tokens, honoring quoted strings.
+
+    Endless Sky uses double quotes for most strings and backticks when a
+    string itself needs to contain double quotes.
+    """
+    tokens = []
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if c in " \t":
+            i += 1
+            continue
+        if c in ('"', '`'):
+            quote = c
+            j = i + 1
+            while j < n and line[j] != quote:
+                j += 1
+            tokens.append(line[i + 1:j])
+            i = j + 1
+        else:
+            j = i
+            while j < n and line[j] not in " \t":
+                j += 1
+            tokens.append(line[i:j])
+            i = j
+    return tokens
+
+
+def indent(line):
+    """Return the tab indentation level of a line."""
+    return len(line) - len(line.lstrip("\t"))
+
+
+def parse_value(token):
+    """Return the token as a float when possible, otherwise as a string."""
+    try:
+        return float(token)
+    except ValueError:
+        return token
+
+
+def data_files(data_dir):
+    """Yield the data files to scan, skipping the deprecated folder."""
+    for root, dirs, files in os.walk(data_dir):
+        if os.path.basename(root) == "_deprecated":
+            continue
+        for name in sorted(files):
+            if name.endswith(".txt"):
+                yield os.path.join(root, name)
+
+
+def parse_blocks(data_dir):
+    """Parse all ship definitions into base/variant blocks with attribute ops."""
+    blocks = []
+    for path in data_files(data_dir):
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+
+        i = 0
+        n = len(lines)
+        while i < n:
+            line = lines[i]
+            level = indent(line)
+            tokens = tokenize(line)
+
+            if level == 0 and len(tokens) >= 2 and tokens[0] == "ship":
+                base = tokens[1]
+                variant = tokens[2] if len(tokens) >= 3 else None
+                ops = []
+                i += 1
+
+                # Consume this ship's block (all lines indented under it).
+                while i < n and indent(lines[i]) > 0:
+                    inner_level = indent(lines[i])
+                    inner = tokenize(lines[i])
+
+                    if inner_level == 1 and inner:
+                        if inner[0] in ("sprite", "thumbnail", "display name", "plural") and len(inner) >= 2:
+                            ops.append(("set", {inner[0]: inner[1]}))
+                            i += 1
+                            continue
+
+                        if inner[0] == "attributes":
+                            values = {}
+                            ops.append(("set", values))
+                            i += 1
+                            while i < n and indent(lines[i]) > 1:
+                                attr_level = indent(lines[i])
+                                attr = tokenize(lines[i])
+                                if attr_level == 2 and len(attr) >= 2:
+                                    values[attr[0]] = parse_value(attr[1])
+                                i += 1
+                            continue
+
+                        if inner[0] == "add" and len(inner) >= 2 and inner[1] == "attributes":
+                            values = {}
+                            ops.append(("add", values))
+                            i += 1
+                            while i < n and indent(lines[i]) > 1:
+                                attr_level = indent(lines[i])
+                                attr = tokenize(lines[i])
+                                if attr_level == 2 and len(attr) >= 2:
+                                    values[attr[0]] = parse_value(attr[1])
+                                i += 1
+                            continue
+
+                    i += 1
+
+                blocks.append({"base": base, "variant": variant, "ops": ops})
+            else:
+                i += 1
+
+    return blocks
+
+
+def apply_ops(attrs, ops):
+    """Apply a block's attribute operations to the given attribute dict."""
+    for mode, values in ops:
+        if mode == "set":
+            attrs.update(values)
+        else:  # "add"
+            for key, value in values.items():
+                if isinstance(value, float) and isinstance(attrs.get(key), float):
+                    attrs[key] += value
+                else:
+                    attrs[key] = value
+
+
+def resolve_ships(blocks):
+    """Resolve bases first, then variants, returning name/attribute rows."""
+    base_attrs = {}
+
+    # Bases must exist before variants can inherit from them.
+    for block in blocks:
+        if block["variant"] is None:
+            attrs = {}
+            apply_ops(attrs, block["ops"])
+            base_attrs[block["base"]] = attrs
+
+    ships = []
+    for block in blocks:
+        attrs = {}
+        if block["variant"] is not None:
+            attrs = base_attrs.get(block["base"], {}).copy()
+        apply_ops(attrs, block["ops"])
+
+        name = block["variant"] if block["variant"] is not None else block["base"]
+        ships.append({"name": name, "base": block["base"],
+                      "variant": block["variant"], "attrs": attrs})
+
+    return ships
+
+
+def number(attrs, key):
+    """Get a numeric attribute, defaulting to zero."""
+    value = attrs.get(key, 0.0)
+    return value if isinstance(value, float) else 0.0
+
+
+def build_rows(ships):
+    """Compute the derived columns for every ship."""
+    rows = []
+    for ship in ships:
+        attrs = ship["attrs"]
+        cargo = max(0.0, number(attrs, "cargo space"))
+        outfit = max(0.0, number(attrs, "outfit space"))
+        bunks = max(0.0, number(attrs, "bunks"))
+
+        expansions = int(cargo // EXPANSION_CARGO_SPACE)
+        outfit_total = outfit + expansions * EXPANSION_OUTFIT_SPACE
+        bunk_rooms = int(outfit_total // BUNK_ROOM_OUTFIT_SPACE)
+        max_bunks = bunks + bunk_rooms * BUNK_ROOM_BUNKS
+
+        category = attrs.get("category", "")
+        sprite = attrs.get("sprite", "")
+        thumbnail = attrs.get("thumbnail", "")
+        display_name = attrs.get("display name", "")
+        if not isinstance(display_name, str) or not display_name:
+            display_name = ship["base"] if ship["variant"] is not None else ship["name"]
+        rows.append({
+            "name": ship["name"],
+            "display_name": display_name,
+            "is_base": ship["variant"] is None,
+            "category": category if isinstance(category, str) else "",
+            "cost": number(attrs, "cost"),
+            "shields": number(attrs, "shields"),
+            "hull": number(attrs, "hull"),
+            "crew": number(attrs, "required crew"),
+            "bunks": bunks,
+            "cargo": cargo,
+            "outfit": outfit,
+            "expansions": expansions,
+            "outfit_total": outfit_total,
+            "bunk_rooms": bunk_rooms,
+            "max_bunks": max_bunks,
+            "leftover_outfit": outfit_total - bunk_rooms * BUNK_ROOM_OUTFIT_SPACE,
+            "sprite": sprite if isinstance(sprite, str) else "",
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (-row["max_bunks"], row["name"].lower()))
+    return rows
+
+
+def dedupe_rows(rows):
+    """Merge rows whose displayed table columns are identical.
+
+    The table ignores loadouts and also hides some attributes (drag, fuel,
+    weapon/engine capacity, mass, etc.), so ships that differ only in those
+    hidden stats are still considered the same ship here. The merged row keeps
+    the base ship's name (or the alphabetically first variant name when the
+    group only contains variants).
+    """
+    key_columns = [key for _, key, _, _ in SHIP_COLUMNS if key != "name"]
+
+    groups = {}
+    for row in rows:
+        key = tuple(row[column] for column in key_columns)
+        groups.setdefault(key, []).append(row)
+
+    merged = []
+    for group in groups.values():
+        representative = None
+        for row in group:
+            if row.get("is_base"):
+                representative = row
+                break
+        if representative is None:
+            representative = min(group, key=lambda row: row["name"])
+        merged.append(dict(representative))
+
+    return merged
+
+
+def format_number(value):
+    """Format a numeric value with thousands separators and no decimal noise."""
+    if value == int(value):
+        return f"{int(value):,}"
+    return f"{value:,.1f}"
+
+
+def apply_theme(root):
+    """Apply the shared dark theme to all ttk widgets."""
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    # The root window shows through the spacing around the paned window, so
+    # it must be dark as well, or thin white strips appear at the edges.
+    root.configure(bg=BG)
+
+    style.configure(".", background=BG, foreground=FG,
+                    fieldbackground=ENTRY_BG)
+    style.configure("TFrame", background=BG)
+    style.configure("TLabel", background=BG, foreground=FG)
+    style.configure("TButton", background="#333333", foreground=FG,
+                    borderwidth=1, focusthickness=1, focuscolor=BG)
+    style.map("TButton",
+              background=[("active", "#3c3c3c"), ("pressed", "#2a2a2a")])
+    style.configure("TEntry", fieldbackground=ENTRY_BG, foreground=FG,
+                    insertcolor=FG)
+    style.configure("TCheckbutton", background=BG, foreground=FG)
+    style.map("TCheckbutton",
+              background=[("active", BG)],
+              foreground=[("active", FG)])
+    style.configure("TPanedwindow", background=BG)
+    style.configure("Treeview", background=ENTRY_BG,
+                    fieldbackground=ENTRY_BG, foreground=FG,
+                    borderwidth=0, rowheight=24)
+    style.configure("Treeview.Heading", background="#2d2d2d",
+                    foreground=FG, borderwidth=0)
+    style.map("Treeview.Heading",
+              background=[("active", "#3a3a3a"), ("pressed", "#2a2a2a")],
+              foreground=[("active", "#ffffff"), ("pressed", "#ffffff")])
+    style.map("Treeview",
+              background=[("selected", SELECT_BG)],
+              foreground=[("selected", "#ffffff")])
+    style.configure("TScrollbar", background="#3a3a3a",
+                    troughcolor="#2d2d2d", bordercolor="#2d2d2d",
+                    arrowcolor=FG)
+    style.map("TScrollbar", background=[("active", "#4a4a4a")])
+    style.configure("TNotebook", background=BG, borderwidth=0)
+    style.configure("TNotebook.Tab", background="#2d2d2d", foreground=FG,
+                    padding=(12, 4))
+    style.map("TNotebook.Tab",
+              background=[("selected", BG), ("active", "#3a3a3a")],
+              foreground=[("selected", "#ffffff")])
+
+
+class EnginePickerApp(ttk.Frame):
     ROW_H = 30
     ENGINE_ROW_H = 168
     ENGINE_HEADER_H = 26
     THRUST_COLOR = "#4a90d9"
     TURN_COLOR = "#e08a4a"
 
-    def __init__(self, root):
-        self.root = root
-        root.title("Endless Sky Engine Picker")
-        root.geometry("900x560")
+    def __init__(self, master):
+        super().__init__(master)
+        self.root = master.winfo_toplevel()
 
         self.config_path = os.path.join(os.path.expanduser("~"),
                                         ".endless_sky_engine_picker.json")
         self._save_after_id = None
         self._load_config()
 
-        self.data_dir = os.path.normpath(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"))
+        self.data_dir = DATA_DIR
         self.outfits = None
         self.engines = []
         self.capacity = 0
@@ -48,8 +379,7 @@ class EnginePickerApp:
         self.selected = -1
         self.scroll = 0
 
-        self.images_dir = os.path.normpath(os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "images"))
+        self.images_dir = IMAGES_DIR
         self._photo_cache = {}
         self.engine_rows = []
         self.engine_scroll = 0
@@ -60,21 +390,15 @@ class EnginePickerApp:
         self._computing = False
         self._pending = False
 
-        self.bg = "#1e1e1e"
-        self.fg = "#e0e0e0"
-        self.entry_bg = "#2d2d2d"
-        self.select_bg = "#264f78"
+        self.bg = BG
+        self.fg = FG
+        self.entry_bg = ENTRY_BG
+        self.select_bg = SELECT_BG
         self.mono_font = self._pick_mono_font()
 
-        self._apply_theme()
         self._build_controls()
         self._build_faction_bar()
         self._build_panels()
-
-        root.protocol("WM_DELETE_WINDOW", self._on_close)
-        root.bind("<Configure>", self._on_configure)
-        root.bind("<Up>", self._on_up)
-        root.bind("<Down>", self._on_down)
 
         self._start_loading()
 
@@ -138,49 +462,9 @@ class EnginePickerApp:
         self._save_config()
         self.root.destroy()
 
-    # --------------------------------------------------------------- theme
-    def _apply_theme(self):
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-
-        # The root window shows through the spacing around the paned window, so
-        # it must be dark as well, or thin white strips appear at the edges.
-        self.root.configure(bg=self.bg)
-
-        style.configure(".", background=self.bg, foreground=self.fg,
-                        fieldbackground=self.entry_bg)
-        style.configure("TFrame", background=self.bg)
-        style.configure("TLabel", background=self.bg, foreground=self.fg)
-        style.configure("TButton", background="#333333", foreground=self.fg,
-                        borderwidth=1, focusthickness=1, focuscolor=self.bg)
-        style.map("TButton",
-                  background=[("active", "#3c3c3c"), ("pressed", "#2a2a2a")])
-        style.configure("TEntry", fieldbackground=self.entry_bg,
-                        foreground=self.fg, insertcolor=self.fg)
-        style.configure("TCheckbutton", background=self.bg, foreground=self.fg)
-        style.map("TCheckbutton",
-                  background=[("active", self.bg)],
-                  foreground=[("active", self.fg)])
-        style.configure("TPanedwindow", background=self.bg)
-        style.configure("Treeview", background=self.entry_bg,
-                        fieldbackground=self.entry_bg, foreground=self.fg,
-                        borderwidth=0, rowheight=24)
-        style.configure("Treeview.Heading", background="#2d2d2d",
-                        foreground=self.fg, borderwidth=0)
-        style.map("Treeview",
-                  background=[("selected", self.select_bg)],
-                  foreground=[("selected", "#ffffff")])
-        style.configure("TScrollbar", background="#3a3a3a",
-                        troughcolor="#2d2d2d", bordercolor="#2d2d2d",
-                        arrowcolor=self.fg)
-        style.map("TScrollbar", background=[("active", "#4a4a4a")])
-
     # ------------------------------------------------------------------ UI
     def _build_controls(self):
-        bar = ttk.Frame(self.root, padding=8)
+        bar = ttk.Frame(self, padding=8)
         bar.pack(side=tk.TOP, fill=tk.X)
 
         ttk.Label(bar, text="Engine capacity:").pack(side=tk.LEFT)
@@ -196,11 +480,11 @@ class EnginePickerApp:
         ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
 
     def _build_faction_bar(self):
-        self.checkbox_frame = ttk.Frame(self.root, padding=(8, 0, 8, 4))
+        self.checkbox_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
         self.checkbox_frame.pack(side=tk.TOP, fill=tk.X)
 
     def _build_panels(self):
-        paned = ttk.Panedwindow(self.root, orient=tk.HORIZONTAL)
+        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
         # Left: canvas list of results, each row with thrust/turn bars.
@@ -665,9 +949,362 @@ class EnginePickerApp:
         self.scrollbar.set(first, min(1.0, last))
 
 
+class ShipBunksApp(ttk.Frame):
+    """Tab that lists every ship by its maximum achievable crew capacity.
+
+    Each ship shows its game sprite beside the table. The calculation assumes
+    cargo space is converted to outfit space with "Outfits Expansion" and the
+    resulting outfit space is filled with "Bunk Room" outfits.
+    """
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.root = master.winfo_toplevel()
+
+        self.data_dir = DATA_DIR
+        self.images_dir = IMAGES_DIR
+
+        self.ships = []
+        self.full_rows = []
+        self.deduped_rows = []
+        self.rows = []
+
+        self._photo_cache = {}
+        self._current_photo = None
+        self._current_row = None
+        self._sort_key = "max_bunks"
+        self._sort_reverse = True
+
+        self._build_ui()
+        self._start_loading()
+
+    def _build_ui(self):
+        bar = ttk.Frame(self, padding=8)
+        bar.pack(side=tk.TOP, fill=tk.X)
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
+
+        self.show_all_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="Show all variants",
+                        variable=self.show_all_var,
+                        command=self._on_show_all).pack(side=tk.RIGHT, padx=8)
+
+        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # Left: sortable table of ships.
+        table_frame = ttk.Frame(paned)
+        columns = [key for _, key, _, _ in SHIP_COLUMNS]
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings",
+                                 selectmode="browse")
+        for header, key, width, anchor in SHIP_COLUMNS:
+            self.tree.heading(key, text=header, anchor=anchor,
+                              command=lambda k=key: self._on_sort(k))
+            self.tree.column(key, width=width, anchor=anchor,
+                             stretch=(key in ("name", "category")))
+
+        yscroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
+                                command=self.tree.yview)
+        xscroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
+                                command=self.tree.xview)
+        self.tree.configure(yscrollcommand=yscroll.set,
+                            xscrollcommand=xscroll.set)
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+        paned.add(table_frame, weight=3)
+
+        # Right: ship sprite preview.
+        preview = ttk.Frame(paned, padding=6)
+        self.name_var = tk.StringVar(value="")
+        ttk.Label(preview, textvariable=self.name_var,
+                  font=("TkDefaultFont", 11, "bold")).pack(side=tk.TOP,
+                                                           anchor="w")
+
+        self.canvas = tk.Canvas(preview, background=BG, width=300,
+                                highlightthickness=1,
+                                highlightbackground="#333333")
+        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=6)
+
+        self.stats_var = tk.StringVar(value="")
+        ttk.Label(preview, textvariable=self.stats_var,
+                  justify=tk.LEFT).pack(side=tk.TOP, anchor="w")
+        paned.add(preview, weight=2)
+
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Button-3>", self._on_right_click)
+        self.canvas.bind("<Configure>", lambda event: self._redraw_preview())
+
+        self.context_menu = tk.Menu(self.tree, tearoff=0,
+                                    background=ENTRY_BG, foreground=FG,
+                                    activebackground=SELECT_BG,
+                                    activeforeground="#ffffff")
+        self.context_menu.add_command(label="Copy Source Name",
+                                      command=lambda: self._copy_field("name"))
+        self.context_menu.add_command(label="Copy In-Game Name",
+                                      command=lambda: self._copy_field("display_name"))
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Copy Both Names",
+                                      command=self._copy_both_names)
+
+    def _start_loading(self):
+        self.status_var.set("Loading ships...")
+        threading.Thread(target=self._load_worker, daemon=True).start()
+
+    def _load_worker(self):
+        try:
+            blocks = parse_blocks(self.data_dir)
+            ships = resolve_ships(blocks)
+            full_rows = build_rows(ships)
+            deduped = dedupe_rows(full_rows)
+            self.root.after(0, self._load_done, ships, full_rows, deduped)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._load_error, str(exc))
+
+    def _load_done(self, ships, full_rows, deduped):
+        self.ships = ships
+        self.full_rows = full_rows
+        self.deduped_rows = deduped
+        self._refresh_rows()
+        self.status_var.set("{} ships.".format(len(self.rows)))
+
+    def _load_error(self, message):
+        self.status_var.set("Error: {}".format(message))
+
+    def _refresh_rows(self):
+        self.rows = list(self.full_rows if self.show_all_var.get()
+                         else self.deduped_rows)
+        self._apply_sort()
+        self._populate()
+
+    def _on_show_all(self):
+        if not self.full_rows:
+            return
+        self._refresh_rows()
+
+    def _on_sort(self, key):
+        if self._sort_key == key:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_key = key
+            self._sort_reverse = key not in ("name", "category")
+        self._apply_sort()
+        self._populate()
+
+    def _apply_sort(self):
+        key = self._sort_key
+        reverse = self._sort_reverse
+
+        def sort_value(row):
+            value = row.get(key, "")
+            return value.lower() if isinstance(value, str) else value
+
+        self.rows.sort(key=sort_value, reverse=reverse)
+
+    def _populate(self):
+        self.tree.delete(*self.tree.get_children())
+        for index, row in enumerate(self.rows):
+            values = []
+            for _, key, _, _ in SHIP_COLUMNS:
+                value = row[key]
+                values.append(value if isinstance(value, str)
+                              else format_number(value))
+            self.tree.insert("", "end", iid=str(index), values=values)
+
+        if self.rows:
+            self.tree.selection_set("0")
+            self.tree.focus("0")
+            self._show_preview(self.rows[0])
+
+    def _on_select(self, event):
+        selection = self.tree.selection()
+        if not selection:
+            return
+        self._show_preview(self.rows[int(selection[0])])
+
+    def _on_right_click(self, event):
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.tree.selection_set(row_id)
+        self.tree.focus(row_id)
+        self._show_preview(self.rows[int(row_id)])
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def _selected_row(self):
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        return self.rows[int(selection[0])]
+
+    def _copy_field(self, key):
+        row = self._selected_row()
+        if row is None:
+            return
+        self._copy_to_clipboard(str(row[key]))
+
+    def _copy_both_names(self):
+        row = self._selected_row()
+        if row is None:
+            return
+        self._copy_to_clipboard("{}\t{}".format(row["name"], row["display_name"]))
+
+    def _copy_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+
+    def _show_preview(self, row):
+        self._current_row = row
+        self.name_var.set(row["display_name"])
+
+        lines = []
+        if row["display_name"] != row["name"]:
+            lines.append("Source name: {}".format(row["name"]))
+        lines.append("Max bunks: {}".format(format_number(row["max_bunks"])))
+        lines.append("Bunks: {}".format(format_number(row["bunks"])))
+        lines.append("Cargo: {}".format(format_number(row["cargo"])))
+        lines.append("Outfit: {}".format(format_number(row["outfit"])))
+        lines.append("Expansions: {}".format(format_number(row["expansions"])))
+        lines.append("Outfit total: {}".format(format_number(row["outfit_total"])))
+        lines.append("Bunk rooms: {}".format(format_number(row["bunk_rooms"])))
+        lines.append("Leftover outfit: {}".format(format_number(row["leftover_outfit"])))
+        lines.append("Category: {}".format(row["category"]))
+        lines.append("Cost: {}".format(format_number(row["cost"])))
+        lines.append("Shields: {}".format(format_number(row["shields"])))
+        lines.append("Hull: {}".format(format_number(row["hull"])))
+        lines.append("Crew: {}".format(format_number(row["crew"])))
+        self.stats_var.set("\n".join(lines))
+        self._redraw_preview()
+
+    def _redraw_preview(self):
+        canvas = self.canvas
+        canvas.delete("all")
+        if self._current_row is None:
+            return
+
+        path = self._ship_image_path(self._current_row)
+        if path is None:
+            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
+            return
+
+        photo = self._load_photo(path, max(canvas.winfo_width() - 8, 200))
+        if photo is None:
+            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
+            return
+
+        self._current_photo = photo
+        canvas.create_image(canvas.winfo_width() // 2,
+                            canvas.winfo_height() // 2,
+                            image=photo, anchor="center")
+
+    def _ship_image_path(self, row):
+        """Return the on-disk path to the ship sprite, or its first frame."""
+        sprite = row.get("sprite", "")
+        if sprite:
+            path = os.path.join(self.images_dir, sprite + ".png")
+            if os.path.isfile(path):
+                return path
+            # Animated ships store frames either in a directory named after
+            # the sprite (e.g. "ship/avgi koryfi/koryfi" -> koryfi-00.png) or
+            # beside it (e.g. "ship/hallucination" -> hallucination-0.png).
+            frame = self._first_frame(sprite)
+            if frame:
+                return frame
+
+        thumbnail = row.get("thumbnail", "")
+        if thumbnail:
+            path = os.path.join(self.images_dir, thumbnail + ".png")
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def _first_frame(self, sprite):
+        """Find the lowest-numbered animation frame for a sprite path."""
+        parent = os.path.dirname(sprite)
+        base = os.path.basename(sprite)
+        if not parent or not base:
+            return None
+
+        directory = os.path.join(self.images_dir, parent)
+        if not os.path.isdir(directory):
+            return None
+
+        prefix = base + "-"
+        suffix = ".png"
+        candidates = []
+        for name in os.listdir(directory):
+            if name.startswith(prefix) and name.endswith(suffix):
+                middle = name[len(prefix):-len(suffix)]
+                if middle.isdigit():
+                    candidates.append((int(middle), name))
+
+        if not candidates:
+            return None
+        candidates.sort()
+        return os.path.join(directory, candidates[0][1])
+
+    def _load_photo(self, path, max_size):
+        if path in self._photo_cache:
+            return self._photo_cache[path]
+        try:
+            image = tk.PhotoImage(file=path)
+        except tk.TclError:
+            return None
+        largest = max(image.width(), image.height())
+        if largest > max_size:
+            factor = (largest + max_size - 1) // max_size
+            image = image.subsample(factor, factor)
+        self._photo_cache[path] = image
+        return image
+
+
 def main():
     root = tk.Tk()
-    EnginePickerApp(root)
+    root.title("Endless Sky Tools")
+    root.geometry("1120x680")
+
+    apply_theme(root)
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill=tk.BOTH, expand=True)
+
+    engine_tab = ttk.Frame(notebook)
+    engine_app = EnginePickerApp(engine_tab)
+    engine_app.pack(fill=tk.BOTH, expand=True)
+    notebook.add(engine_tab, text="Engine Picker")
+
+    bunks_tab = ttk.Frame(notebook)
+    bunks_app = ShipBunksApp(bunks_tab)
+    bunks_app.pack(fill=tk.BOTH, expand=True)
+    notebook.add(bunks_tab, text="Ship Bunks")
+
+    def on_close():
+        engine_app._on_close()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.bind("<Configure>", engine_app._on_configure)
+
+    def on_up(event):
+        selected = notebook.select()
+        if selected and notebook.index(selected) == 0:
+            engine_app._on_up(event)
+
+    def on_down(event):
+        selected = notebook.select()
+        if selected and notebook.index(selected) == 0:
+            engine_app._on_down(event)
+
+    root.bind("<Up>", on_up)
+    root.bind("<Down>", on_down)
+
     root.mainloop()
 
 
