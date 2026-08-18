@@ -963,6 +963,7 @@ class ShipBunksApp(ttk.Frame):
 
         self.data_dir = DATA_DIR
         self.images_dir = IMAGES_DIR
+        self.plugin_images_dir = self._find_plugin_images_dir()
 
         self.ships = []
         self.full_rows = []
@@ -1206,39 +1207,65 @@ class ShipBunksApp(ttk.Frame):
                             image=photo, anchor="center")
 
     def _ship_image_path(self, row):
-        """Return the on-disk path to the ship sprite, or its first frame."""
+        """Return the on-disk path to the ship sprite, or its first frame.
+
+        High-resolution sprites from a plugin under plugins/ are preferred
+        when available, falling back to the base game images.
+        """
         sprite = row.get("sprite", "")
         if sprite:
-            path = os.path.join(self.images_dir, sprite + ".png")
-            if os.path.isfile(path):
-                return path
-            # Animated ships store frames either in a directory named after
-            # the sprite (e.g. "ship/avgi koryfi/koryfi" -> koryfi-00.png) or
-            # beside it (e.g. "ship/hallucination" -> hallucination-0.png).
-            frame = self._first_frame(sprite)
-            if frame:
-                return frame
+            for images_dir in self._image_dirs():
+                marker = "@2x" if images_dir == self.plugin_images_dir else ""
+                path = os.path.join(images_dir, sprite + marker + ".png")
+                if os.path.isfile(path):
+                    return path
+                # Animated ships store frames either in a directory named
+                # after the sprite (e.g. "ship/avgi koryfi/koryfi" ->
+                # koryfi-00.png) or beside it (e.g. "ship/hallucination" ->
+                # hallucination-0.png).
+                frame = self._first_frame(images_dir, sprite, marker)
+                if frame:
+                    return frame
 
         thumbnail = row.get("thumbnail", "")
         if thumbnail:
-            path = os.path.join(self.images_dir, thumbnail + ".png")
-            if os.path.isfile(path):
-                return path
+            for images_dir in self._image_dirs():
+                marker = "@2x" if images_dir == self.plugin_images_dir else ""
+                path = os.path.join(images_dir, thumbnail + marker + ".png")
+                if os.path.isfile(path):
+                    return path
         return None
 
-    def _first_frame(self, sprite):
+    def _image_dirs(self):
+        """Yield the image roots to search, plugin first when present."""
+        if self.plugin_images_dir:
+            yield self.plugin_images_dir
+        yield self.images_dir
+
+    def _find_plugin_images_dir(self):
+        """Locate the images folder of the first plugin that ships sprites."""
+        plugins_dir = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "plugins"))
+        if not os.path.isdir(plugins_dir):
+            return None
+        for name in sorted(os.listdir(plugins_dir)):
+            images = os.path.normpath(os.path.join(plugins_dir, name, "images"))
+            if os.path.isdir(os.path.join(images, "ship")):
+                return images
+        return None
+
+    def _first_frame(self, images_dir, sprite, marker):
         """Find the lowest-numbered animation frame for a sprite path."""
         parent = os.path.dirname(sprite)
         base = os.path.basename(sprite)
         if not parent or not base:
             return None
 
-        directory = os.path.join(self.images_dir, parent)
+        directory = os.path.join(images_dir, parent)
         if not os.path.isdir(directory):
             return None
 
         prefix = base + "-"
-        suffix = ".png"
+        suffix = marker + ".png"
         candidates = []
         for name in os.listdir(directory):
             if name.startswith(prefix) and name.endswith(suffix):
