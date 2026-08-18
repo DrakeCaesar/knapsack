@@ -971,10 +971,15 @@ class ShipBunksApp(ttk.Frame):
         self.rows = []
 
         self._photo_cache = {}
+        self._path_cache = {}
         self._current_photo = None
         self._current_row = None
         self._sort_key = "max_bunks"
         self._sort_reverse = True
+        self.preview_size = 240
+        self._preload_paths = []
+        self._preload_index = 0
+        self._preload_attempted = set()
 
         self._build_ui()
         self._start_loading()
@@ -1071,7 +1076,6 @@ class ShipBunksApp(ttk.Frame):
         self.full_rows = full_rows
         self.deduped_rows = deduped
         self._refresh_rows()
-        self.status_var.set("{} ships.".format(len(self.rows)))
 
     def _load_error(self, message):
         self.status_var.set("Error: {}".format(message))
@@ -1081,6 +1085,7 @@ class ShipBunksApp(ttk.Frame):
                          else self.deduped_rows)
         self._apply_sort()
         self._populate()
+        self._start_preload()
 
     def _on_show_all(self):
         if not self.full_rows:
@@ -1196,7 +1201,7 @@ class ShipBunksApp(ttk.Frame):
             canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
             return
 
-        photo = self._load_photo(path, max(canvas.winfo_width() - 8, 200))
+        photo = self._load_photo(path, self.preview_size)
         if photo is None:
             canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
             return
@@ -1208,6 +1213,20 @@ class ShipBunksApp(ttk.Frame):
 
     def _ship_image_path(self, row):
         """Return the on-disk path to the ship sprite, or its first frame.
+
+        Results are memoized per sprite/thumbnail because resolving animated
+        sprites scans directories on disk.
+        """
+        key = (row.get("sprite", ""), row.get("thumbnail", ""))
+        if key in self._path_cache:
+            return self._path_cache[key]
+
+        path = self._resolve_image_path(row)
+        self._path_cache[key] = path
+        return path
+
+    def _resolve_image_path(self, row):
+        """Resolve the ship sprite path, preferring high-res plugin sprites.
 
         High-resolution sprites from a plugin under plugins/ are preferred
         when available, falling back to the base game images.
@@ -1291,6 +1310,52 @@ class ShipBunksApp(ttk.Frame):
             image = image.subsample(factor, factor)
         self._photo_cache[path] = image
         return image
+
+    def _start_preload(self):
+        """Queue every ship sprite for loading exactly once, in the background."""
+        paths = []
+        seen = set()
+        for row in self.rows:
+            path = self._ship_image_path(row)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+        self._preload_paths = paths
+        self._preload_index = 0
+        self._preload_attempted = set()
+        self._update_preload_status()
+        if paths:
+            self.root.after(16, self._preload_next)
+
+    def _preload_next(self):
+        """Load one uncached sprite per tick, yielding to the event loop.
+
+        A timer (rather than an idle callback) is used so pending mouse and
+        keyboard events are serviced between image loads, keeping the UI
+        responsive while the cache warms up.
+        """
+        while self._preload_index < len(self._preload_paths):
+            path = self._preload_paths[self._preload_index]
+            self._preload_index += 1
+            if path in self._photo_cache or path in self._preload_attempted:
+                continue
+            self._preload_attempted.add(path)
+            self._load_photo(path, self.preview_size)
+            self._update_preload_status()
+            break
+        if self._preload_index < len(self._preload_paths):
+            self.root.after(16, self._preload_next)
+        else:
+            self._update_preload_status()
+
+    def _update_preload_status(self):
+        total = len(self.rows)
+        loaded = 0
+        for row in self.rows:
+            path = self._ship_image_path(row)
+            if path is None or path in self._photo_cache:
+                loaded += 1
+        self.status_var.set("{} / {} ships loaded".format(loaded, total))
 
 
 def main():
