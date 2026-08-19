@@ -49,105 +49,110 @@ EXPANSION_CARGO_SPACE = 20.0
 BUNK_ROOM_BUNKS = 4.0
 BUNK_ROOM_OUTFIT_SPACE = 20.0
 
-# Ship bunks table columns: (header, row key, width, anchor).
+# Ship bunks table columns: (header, row key, anchor). Column widths are not
+# declared; each is auto-sized to the widest text in that column, including
+# the header.
 SHIP_COLUMNS = [
-    ("Source Name", "name", 170, "w"),
-    ("In-Game Name", "display_name", 170, "w"),
-    ("Max Bunks", "max_bunks", 90, "e"),
-    ("Bunks", "bunks", 70, "e"),
-    ("Cargo", "cargo", 70, "e"),
-    ("Outfit", "outfit", 70, "e"),
-    ("Expansions", "expansions", 90, "e"),
-    ("Outfit Total", "outfit_total", 90, "e"),
-    ("Bunk Rooms", "bunk_rooms", 90, "e"),
-    ("Leftover Outfit", "leftover_outfit", 110, "e"),
-    ("Category", "category", 150, "w"),
-    ("Cost", "cost", 90, "e"),
-    ("Shields", "shields", 80, "e"),
-    ("Hull", "hull", 70, "e"),
-    ("Crew", "crew", 60, "e"),
+    ("Source Name", "name", "w"),
+    ("In-Game Name", "display_name", "w"),
+    ("Max Bunks", "max_bunks", "e"),
+    ("Bunks", "bunks", "e"),
+    ("Cargo", "cargo", "e"),
+    ("Outfit", "outfit", "e"),
+    ("Expansions", "expansions", "e"),
+    ("Outfit Total", "outfit_total", "e"),
+    ("Bunk Rooms", "bunk_rooms", "e"),
+    ("Leftover Outfit", "leftover_outfit", "e"),
+    ("Category", "category", "w"),
+    ("Cost", "cost", "e"),
+    ("Shields", "shields", "e"),
+    ("Hull", "hull", "e"),
+    ("Crew", "crew", "e"),
 ]
 
-# Generator comparison table columns: (header, row key, width, anchor).
+# Generator comparison table columns: (header, row key, anchor). Column widths
+# are auto-sized to the widest text in each column, including the header.
 GENERATOR_COLUMNS = [
-    ("Name", "name", 180, "w"),
-    ("Faction", "faction", 110, "w"),
-    ("Cost", "cost", 90, "e"),
-    ("Mass", "mass", 70, "e"),
-    ("Space", "space", 70, "e"),
-    ("Energy/s", "energy", 80, "e"),
-    ("Heat/s", "heat", 70, "e"),
-    ("Energy/Space", "energy_per_space", 100, "e"),
-    ("Energy/Heat", "energy_per_heat", 100, "e"),
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Energy/s", "energy", "e"),
+    ("Heat/s", "heat", "e"),
+    ("Energy/Space", "energy_per_space", "e"),
+    ("Energy/Heat", "energy_per_heat", "e"),
 ]
 
-# Engine comparison table columns: (header, row key, width, anchor).
+# Engine comparison table columns: (header, row key, anchor). Column widths are
+# auto-sized to the widest text in each column, including the header.
 ENGINE_COLUMNS = [
-    ("Name", "name", 190, "w"),
-    ("Faction", "faction", 110, "w"),
-    ("Cost", "cost", 90, "e"),
-    ("Mass", "mass", 70, "e"),
-    ("Space", "space", 70, "e"),
-    ("Thrust", "thrust", 80, "e"),
-    ("Turn", "turn", 80, "e"),
-    ("Energy/s", "energy", 90, "e"),
-    ("Heat/s", "heat", 70, "e"),
-    ("Thrust/Space", "thrust_per_space", 100, "e"),
-    ("Turn/Space", "turn_per_space", 100, "e"),
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Thrust", "thrust", "e"),
+    ("Turn", "turn", "e"),
+    ("Energy/s", "energy", "e"),
+    ("Heat/s", "heat", "e"),
+    ("Thrust/Space", "thrust_per_space", "e"),
+    ("Turn/Space", "turn_per_space", "e"),
 ]
 
-# Weapon comparison table columns: (header, row key, width, anchor).
-# Damage columns are per shot; rates (En/s, Ht/s, Fuel/s, Reload, DPS) are
-# normalized to a one-second firing cycle where applicable.
+# Weapon comparison table columns: (header, row key, anchor). Column widths are
+# not declared; each is auto-sized to the widest text in that column, including
+# the header. Damage columns are per shot; rates (En/s, Ht/s, Fuel/s, Reload,
+# DPS) are normalized to a one-second firing cycle where applicable.
 WEAPON_COLUMNS = [
-    ("Name", "name", 190, "w"),
-    ("Faction", "faction", 100, "w"),
-    ("Mount", "mount", 90, "w"),
-    ("Type", "type", 90, "w"),
-    ("Cost", "cost", 85, "e"),
-    ("Mass", "mass", 65, "e"),
-    ("Space", "space", 65, "e"),
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Mount", "mount", "w"),
+    ("Type", "type", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
     # Direct damage.
-    ("Shield", "shield_damage", 75, "e"),
-    ("Hull", "hull_damage", 70, "e"),
-    ("Disabl", "disabled_damage", 75, "e"),
-    ("Minabl", "minable_damage", 75, "e"),
-    ("Fuel Dmg", "fuel_damage", 80, "e"),
-    ("Heat Dmg", "heat_damage", 80, "e"),
-    ("En Dmg", "energy_damage", 75, "e"),
+    ("Shield", "shield_damage", "e"),
+    ("Hull", "hull_damage", "e"),
+    ("Disabl", "disabled_damage", "e"),
+    ("Minabl", "minable_damage", "e"),
+    ("Fuel Dmg", "fuel_damage", "e"),
+    ("Heat Dmg", "heat_damage", "e"),
+    ("En Dmg", "energy_damage", "e"),
     # Status damage.
-    ("Ion", "ion_damage", 60, "e"),
-    ("Scrambl", "scrambling_damage", 80, "e"),
-    ("Disrupt", "disruption_damage", 80, "e"),
-    ("Slow", "slowing_damage", 60, "e"),
-    ("Dischrg", "discharge_damage", 80, "e"),
-    ("Corro", "corrosion_damage", 70, "e"),
-    ("Leak", "leak_damage", 60, "e"),
-    ("Burn", "burn_damage", 60, "e"),
+    ("Ion", "ion_damage", "e"),
+    ("Scrambl", "scrambling_damage", "e"),
+    ("Disrupt", "disruption_damage", "e"),
+    ("Slow", "slowing_damage", "e"),
+    ("Dischrg", "discharge_damage", "e"),
+    ("Corro", "corrosion_damage", "e"),
+    ("Leak", "leak_damage", "e"),
+    ("Burn", "burn_damage", "e"),
     # Other damage modifiers.
-    ("Pierce", "piercing", 70, "e"),
-    ("HitForce", "hit_force", 80, "e"),
-    ("Missile", "missile_strength", 75, "e"),
-    ("BlastRad", "blast_radius", 80, "e"),
+    ("Pierce", "piercing", "e"),
+    ("HitForce", "hit_force", "e"),
+    ("Missile", "missile_strength", "e"),
+    ("BlastRad", "blast_radius", "e"),
     # Projectile mechanics.
-    ("Range", "range", 80, "e"),
-    ("Reload", "reload", 70, "e"),
-    ("Burst", "burst_count", 60, "e"),
-    ("BurstRel", "burst_reload", 80, "e"),
-    ("DPS", "dps", 80, "e"),
-    ("Velocity", "velocity", 80, "e"),
-    ("Life", "lifetime", 60, "e"),
-    ("Turn", "turn", 60, "e"),
-    ("Inacc", "inaccuracy", 65, "e"),
-    ("Drag", "drag", 60, "e"),
-    ("Accel", "acceleration", 65, "e"),
-    ("Track", "tracking", 65, "e"),
-    ("T-Turn", "turret_turn", 70, "e"),
+    ("Range", "range", "e"),
+    ("Reload", "reload", "e"),
+    ("Burst", "burst_count", "e"),
+    ("BurstRel", "burst_reload", "e"),
+    ("DPS", "dps", "e"),
+    ("Velocity", "velocity", "e"),
+    ("Life", "lifetime", "e"),
+    ("Turn", "turn", "e"),
+    ("Inacc", "inaccuracy", "e"),
+    ("Drag", "drag", "e"),
+    ("Accel", "acceleration", "e"),
+    ("Track", "tracking", "e"),
+    ("T-Turn", "turret_turn", "e"),
     # Firing costs, per second.
-    ("En/s", "energy", 70, "e"),
-    ("Ht/s", "heat", 70, "e"),
-    ("Fuel/s", "fuel", 70, "e"),
-    ("Force/s", "firing_force", 75, "e"),
+    ("En/s", "energy", "e"),
+    ("Ht/s", "heat", "e"),
+    ("Fuel/s", "fuel", "e"),
+    ("Force/s", "firing_force", "e"),
 ]
 
 
@@ -412,7 +417,7 @@ def dedupe_rows(rows):
     the base ship's name (or the alphabetically first variant name when the
     group only contains variants).
     """
-    key_columns = [key for _, key, _, _ in SHIP_COLUMNS if key != "name"]
+    key_columns = [key for _, key, _ in SHIP_COLUMNS if key != "name"]
 
     groups = {}
     for row in rows:
@@ -1366,7 +1371,7 @@ class OutfitTableApp(ttk.Frame):
         self._preload_paths = []
         self._preload_index = 0
         self._preload_attempted = set()
-        self.numeric_keys = [key for _, key, _, _ in self.COLUMNS
+        self.numeric_keys = [key for _, key, _ in self.COLUMNS
                              if key not in self.TEXT_KEYS]
         self.reversed_keys = self.REVERSED_KEYS
         self.selected = -1
@@ -1376,6 +1381,7 @@ class OutfitTableApp(ttk.Frame):
         self._content_width = 0
         self._scales = {}
         self._decimals = {}
+        self._measure_font = tkfont.Font()
         self._redraw_scheduled = False
         self._configure_after_id = None
 
@@ -1439,11 +1445,10 @@ class OutfitTableApp(ttk.Frame):
         table_frame.columnconfigure(0, weight=1)
         paned.add(table_frame, weight=3)
 
-        x = 0
-        for header, key, width, anchor in self.COLUMNS:
-            self._col_layout.append((key, x, width, anchor))
-            x += width
-        self._content_width = x
+        # Column widths are derived from content (widest text, header
+        # included). Size the columns now so the table is drawable before the
+        # data finishes loading; _refresh_rows() re-sizes them from real rows.
+        self._compute_column_widths()
 
         self.table_canvas.bind("<Configure>", self._on_table_configure)
         self.table_canvas.bind("<MouseWheel>", self._on_wheel)
@@ -1551,6 +1556,7 @@ class OutfitTableApp(ttk.Frame):
             self.rows = [row for row in base if row["faction"] in filters]
         self._apply_sort()
         self._recompute_columns()
+        self._compute_column_widths()
         self._select_first()
         self._start_preload()
 
@@ -1638,7 +1644,7 @@ class OutfitTableApp(ttk.Frame):
         return self._heat_color(t)
 
     def _header_for(self, key):
-        for header, k, _, _ in self.COLUMNS:
+        for header, k, _ in self.COLUMNS:
             if k == key:
                 return header
         return key
@@ -1674,6 +1680,38 @@ class OutfitTableApp(ttk.Frame):
                 self._decimals[key] = max(self._decimal_places(value)
                                           for value in values)
             self._scales[key] = (min(values), max(values))
+
+    def _compute_column_widths(self):
+        """Auto-size every column to its widest text.
+
+        Widths are derived purely from content: the longest formatted cell in
+        each column, including the header text, so no width is ever declared.
+        The total content width is the sum of all column widths.
+        """
+        font = self._measure_font
+        decimals = self._decimals
+        cache = {}
+
+        def measure(text):
+            width = cache.get(text)
+            if width is None:
+                width = font.measure(text)
+                cache[text] = width
+            return width
+
+        x = 0
+        layout = []
+        for header, key, anchor in self.COLUMNS:
+            longest = measure(header)
+            for row in self.rows:
+                text = self._format_cell(row, key, decimals.get(key, 0))
+                longest = max(longest, measure(text))
+            # Breathing room on either side of the cell text.
+            width = longest + 16
+            layout.append((key, x, width, anchor))
+            x += width
+        self._col_layout = layout
+        self._content_width = x
 
     def _redraw_table(self):
         canvas = self.table_canvas
@@ -1867,7 +1905,7 @@ class OutfitTableApp(ttk.Frame):
 
         decimals = self._decimals
         lines = list(self._extra_preview_lines(row))
-        for header, key, _, _ in self.COLUMNS:
+        for header, key, _ in self.COLUMNS:
             if key == "name":
                 continue
             value = row.get(key, "")
