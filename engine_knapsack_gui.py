@@ -1071,408 +1071,6 @@ class EnginePickerApp(ttk.Frame):
         self.scrollbar.set(first, min(1.0, last))
 
 
-class ShipBunksApp(ttk.Frame):
-    """Tab that lists every ship by its maximum achievable crew capacity.
-
-    Each ship shows its game sprite beside the table. The calculation assumes
-    cargo space is converted to outfit space with "Outfits Expansion" and the
-    resulting outfit space is filled with "Bunk Room" outfits.
-    """
-
-    def __init__(self, master):
-        super().__init__(master)
-        self.root = master.winfo_toplevel()
-
-        self.data_dir = DATA_DIR
-        self.images_dir = IMAGES_DIR
-        self.plugin_images_dir = self._find_plugin_images_dir()
-
-        self.ships = []
-        self.full_rows = []
-        self.deduped_rows = []
-        self.rows = []
-
-        self._photo_cache = {}
-        self._path_cache = {}
-        self._current_photo = None
-        self._current_row = None
-        self._sort_key = "max_bunks"
-        self._sort_reverse = True
-        self.preview_size = 240
-        self._preload_paths = []
-        self._preload_index = 0
-        self._preload_attempted = set()
-
-        self._build_ui()
-        self._start_loading()
-
-    def _build_ui(self):
-        bar = ttk.Frame(self, padding=8)
-        bar.pack(side=tk.TOP, fill=tk.X)
-
-        self.status_var = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
-
-        self.show_all_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="Show all variants",
-                        variable=self.show_all_var,
-                        command=self._on_show_all).pack(side=tk.RIGHT, padx=8)
-
-        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
-        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
-
-        # Left: sortable table of ships.
-        table_frame = ttk.Frame(paned)
-        columns = [key for _, key, _, _ in SHIP_COLUMNS]
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings",
-                                 selectmode="browse")
-        for header, key, width, anchor in SHIP_COLUMNS:
-            self.tree.heading(key, text=header, anchor=anchor,
-                              command=lambda k=key: self._on_sort(k))
-            self.tree.column(key, width=width, anchor=anchor,
-                             stretch=(key in ("name", "category")))
-
-        yscroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
-                                command=self.tree.yview)
-        xscroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
-                                command=self.tree.xview)
-        self.tree.configure(yscrollcommand=yscroll.set,
-                            xscrollcommand=xscroll.set)
-
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        yscroll.grid(row=0, column=1, sticky="ns")
-        xscroll.grid(row=1, column=0, sticky="ew")
-        table_frame.rowconfigure(0, weight=1)
-        table_frame.columnconfigure(0, weight=1)
-        paned.add(table_frame, weight=3)
-
-        # Right: ship sprite preview.
-        preview = ttk.Frame(paned, padding=6)
-        self.name_var = tk.StringVar(value="")
-        ttk.Label(preview, textvariable=self.name_var,
-                  font=("TkDefaultFont", 11, "bold")).pack(side=tk.TOP,
-                                                           anchor="w")
-
-        self.canvas = tk.Canvas(preview, background=BG, width=300,
-                                highlightthickness=1,
-                                highlightbackground="#333333")
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=6)
-
-        self.stats_var = tk.StringVar(value="")
-        ttk.Label(preview, textvariable=self.stats_var,
-                  justify=tk.LEFT).pack(side=tk.TOP, anchor="w")
-        paned.add(preview, weight=2)
-
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<Button-3>", self._on_right_click)
-        self.canvas.bind("<Configure>", lambda event: self._redraw_preview())
-
-        self.context_menu = tk.Menu(self.tree, tearoff=0,
-                                    background=ENTRY_BG, foreground=FG,
-                                    activebackground=SELECT_BG,
-                                    activeforeground="#ffffff")
-        self.context_menu.add_command(label="Copy Source Name",
-                                      command=lambda: self._copy_field("name"))
-        self.context_menu.add_command(label="Copy In-Game Name",
-                                      command=lambda: self._copy_field("display_name"))
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Copy Both Names",
-                                      command=self._copy_both_names)
-
-    def _start_loading(self):
-        self.status_var.set("Loading ships...")
-        threading.Thread(target=self._load_worker, daemon=True).start()
-
-    def _load_worker(self):
-        try:
-            blocks = parse_blocks(self.data_dir)
-            ships = resolve_ships(blocks)
-            full_rows = build_rows(ships)
-            deduped = dedupe_rows(full_rows)
-            self.root.after(0, self._load_done, ships, full_rows, deduped)
-        except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._load_error, str(exc))
-
-    def _load_done(self, ships, full_rows, deduped):
-        self.ships = ships
-        self.full_rows = full_rows
-        self.deduped_rows = deduped
-        self._refresh_rows()
-
-    def _load_error(self, message):
-        self.status_var.set("Error: {}".format(message))
-
-    def _refresh_rows(self):
-        self.rows = list(self.full_rows if self.show_all_var.get()
-                         else self.deduped_rows)
-        self._apply_sort()
-        self._populate()
-        self._start_preload()
-
-    def _on_show_all(self):
-        if not self.full_rows:
-            return
-        self._refresh_rows()
-
-    def _on_sort(self, key):
-        if self._sort_key == key:
-            self._sort_reverse = not self._sort_reverse
-        else:
-            self._sort_key = key
-            self._sort_reverse = key not in ("name", "category")
-        self._apply_sort()
-        self._populate()
-
-    def _apply_sort(self):
-        key = self._sort_key
-        reverse = self._sort_reverse
-
-        def sort_value(row):
-            value = row.get(key, "")
-            return value.lower() if isinstance(value, str) else value
-
-        self.rows.sort(key=sort_value, reverse=reverse)
-
-    def _populate(self):
-        self.tree.delete(*self.tree.get_children())
-        for index, row in enumerate(self.rows):
-            values = []
-            for _, key, _, _ in SHIP_COLUMNS:
-                value = row[key]
-                values.append(value if isinstance(value, str)
-                              else format_number(value))
-            self.tree.insert("", "end", iid=str(index), values=values)
-
-        if self.rows:
-            self.tree.selection_set("0")
-            self.tree.focus("0")
-            self._show_preview(self.rows[0])
-
-    def _on_select(self, event):
-        selection = self.tree.selection()
-        if not selection:
-            return
-        self._show_preview(self.rows[int(selection[0])])
-
-    def _on_right_click(self, event):
-        row_id = self.tree.identify_row(event.y)
-        if not row_id:
-            return
-        self.tree.selection_set(row_id)
-        self.tree.focus(row_id)
-        self._show_preview(self.rows[int(row_id)])
-        try:
-            self.context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.context_menu.grab_release()
-
-    def _selected_row(self):
-        selection = self.tree.selection()
-        if not selection:
-            return None
-        return self.rows[int(selection[0])]
-
-    def _copy_field(self, key):
-        row = self._selected_row()
-        if row is None:
-            return
-        self._copy_to_clipboard(str(row[key]))
-
-    def _copy_both_names(self):
-        row = self._selected_row()
-        if row is None:
-            return
-        self._copy_to_clipboard("{}\t{}".format(row["name"], row["display_name"]))
-
-    def _copy_to_clipboard(self, text):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update()
-
-    def _show_preview(self, row):
-        self._current_row = row
-        self.name_var.set(row["display_name"])
-
-        lines = []
-        if row["display_name"] != row["name"]:
-            lines.append("Source name: {}".format(row["name"]))
-        lines.append("Max bunks: {}".format(format_number(row["max_bunks"])))
-        lines.append("Bunks: {}".format(format_number(row["bunks"])))
-        lines.append("Cargo: {}".format(format_number(row["cargo"])))
-        lines.append("Outfit: {}".format(format_number(row["outfit"])))
-        lines.append("Expansions: {}".format(format_number(row["expansions"])))
-        lines.append("Outfit total: {}".format(format_number(row["outfit_total"])))
-        lines.append("Bunk rooms: {}".format(format_number(row["bunk_rooms"])))
-        lines.append("Leftover outfit: {}".format(format_number(row["leftover_outfit"])))
-        lines.append("Category: {}".format(row["category"]))
-        lines.append("Cost: {}".format(format_number(row["cost"])))
-        lines.append("Shields: {}".format(format_number(row["shields"])))
-        lines.append("Hull: {}".format(format_number(row["hull"])))
-        lines.append("Crew: {}".format(format_number(row["crew"])))
-        self.stats_var.set("\n".join(lines))
-        self._redraw_preview()
-
-    def _redraw_preview(self):
-        canvas = self.canvas
-        canvas.delete("all")
-        if self._current_row is None:
-            return
-
-        path = self._ship_image_path(self._current_row)
-        if path is None:
-            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
-            return
-
-        photo = self._load_photo(path, self.preview_size)
-        if photo is None:
-            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
-            return
-
-        self._current_photo = photo
-        canvas.create_image(canvas.winfo_width() // 2,
-                            canvas.winfo_height() // 2,
-                            image=photo, anchor="center")
-
-    def _ship_image_path(self, row):
-        """Return the on-disk path to the ship sprite, or its first frame.
-
-        Results are memoized per sprite/thumbnail because resolving animated
-        sprites scans directories on disk.
-        """
-        key = (row.get("sprite", ""), row.get("thumbnail", ""))
-        if key in self._path_cache:
-            return self._path_cache[key]
-
-        path = self._resolve_image_path(row)
-        self._path_cache[key] = path
-        return path
-
-    def _resolve_image_path(self, row):
-        """Resolve the ship sprite path, preferring high-res plugin sprites.
-
-        High-resolution sprites from a plugin under plugins/ are preferred
-        when available, falling back to the base game images.
-        """
-        sprite = row.get("sprite", "")
-        if sprite:
-            for images_dir in self._image_dirs():
-                marker = "@2x" if images_dir == self.plugin_images_dir else ""
-                path = os.path.join(images_dir, sprite + marker + ".png")
-                if os.path.isfile(path):
-                    return path
-                # Animated ships store frames either in a directory named
-                # after the sprite (e.g. "ship/avgi koryfi/koryfi" ->
-                # koryfi-00.png) or beside it (e.g. "ship/hallucination" ->
-                # hallucination-0.png).
-                frame = self._first_frame(images_dir, sprite, marker)
-                if frame:
-                    return frame
-
-        thumbnail = row.get("thumbnail", "")
-        if thumbnail:
-            for images_dir in self._image_dirs():
-                marker = "@2x" if images_dir == self.plugin_images_dir else ""
-                path = os.path.join(images_dir, thumbnail + marker + ".png")
-                if os.path.isfile(path):
-                    return path
-        return None
-
-    def _image_dirs(self):
-        """Yield the image roots to search, plugin first when present."""
-        if self.plugin_images_dir:
-            yield self.plugin_images_dir
-        yield self.images_dir
-
-    def _find_plugin_images_dir(self):
-        """Locate the images folder of the first plugin that ships sprites."""
-        return find_plugin_images_dir()
-
-    def _first_frame(self, images_dir, sprite, marker):
-        """Find the lowest-numbered animation frame for a sprite path."""
-        parent = os.path.dirname(sprite)
-        base = os.path.basename(sprite)
-        if not parent or not base:
-            return None
-
-        directory = os.path.join(images_dir, parent)
-        if not os.path.isdir(directory):
-            return None
-
-        prefix = base + "-"
-        suffix = marker + ".png"
-        candidates = []
-        for name in os.listdir(directory):
-            if name.startswith(prefix) and name.endswith(suffix):
-                middle = name[len(prefix):-len(suffix)]
-                if middle.isdigit():
-                    candidates.append((int(middle), name))
-
-        if not candidates:
-            return None
-        candidates.sort()
-        return os.path.join(directory, candidates[0][1])
-
-    def _load_photo(self, path, max_size):
-        if path in self._photo_cache:
-            return self._photo_cache[path]
-        try:
-            image = tk.PhotoImage(file=path)
-        except tk.TclError:
-            return None
-        largest = max(image.width(), image.height())
-        if largest > max_size:
-            factor = (largest + max_size - 1) // max_size
-            image = image.subsample(factor, factor)
-        self._photo_cache[path] = image
-        return image
-
-    def _start_preload(self):
-        """Queue every ship sprite for loading exactly once, in the background."""
-        paths = []
-        seen = set()
-        for row in self.rows:
-            path = self._ship_image_path(row)
-            if path and path not in seen:
-                seen.add(path)
-                paths.append(path)
-        self._preload_paths = paths
-        self._preload_index = 0
-        self._preload_attempted = set()
-        self._update_preload_status()
-        if paths:
-            self.root.after(16, self._preload_next)
-
-    def _preload_next(self):
-        """Load one uncached sprite per tick, yielding to the event loop.
-
-        A timer (rather than an idle callback) is used so pending mouse and
-        keyboard events are serviced between image loads, keeping the UI
-        responsive while the cache warms up.
-        """
-        while self._preload_index < len(self._preload_paths):
-            path = self._preload_paths[self._preload_index]
-            self._preload_index += 1
-            if path in self._photo_cache or path in self._preload_attempted:
-                continue
-            self._preload_attempted.add(path)
-            self._load_photo(path, self.preview_size)
-            self._update_preload_status()
-            break
-        if self._preload_index < len(self._preload_paths):
-            self.root.after(16, self._preload_next)
-        else:
-            self._update_preload_status()
-
-    def _update_preload_status(self):
-        total = len(self.rows)
-        loaded = 0
-        for row in self.rows:
-            path = self._ship_image_path(row)
-            if path is None or path in self._photo_cache:
-                loaded += 1
-        self.status_var.set("{} / {} ships loaded".format(loaded, total))
-
-
 class OutfitTableApp(ttk.Frame):
     """Reusable heatmap table for comparing outfit stats."""
 
@@ -1484,6 +1082,9 @@ class OutfitTableApp(ttk.Frame):
     CONFIG_FILENAME = ".endless_sky_outfits.json"
     DEFAULT_SORT_KEY = "name"
     DEFAULT_SORT_REVERSE = False
+    TEXT_KEYS = {"name", "faction"}
+    HAS_FACTIONS = True
+    HAS_SHOW_ALL = False
 
     ROW_H = 24
     HEADER_H = 26
@@ -1502,12 +1103,16 @@ class OutfitTableApp(ttk.Frame):
 
         self.outfits = []
         self.all_rows = []
+        self.full_rows = []
+        self.deduped_rows = []
         self.rows = []
         self.factions = []
         self.faction_vars = {}
         self._photo_cache = {}
+        self._path_cache = {}
         self._current_photo = None
         self._current_row = None
+        self.show_all_var = None
         self._sort_key = self.DEFAULT_SORT_KEY
         self._sort_reverse = self.DEFAULT_SORT_REVERSE
         self.preview_size = 240
@@ -1515,13 +1120,17 @@ class OutfitTableApp(ttk.Frame):
         self._preload_index = 0
         self._preload_attempted = set()
         self.numeric_keys = [key for _, key, _, _ in self.COLUMNS
-                             if key not in ("name", "faction")]
+                             if key not in self.TEXT_KEYS]
         self.reversed_keys = self.REVERSED_KEYS
         self.selected = -1
         self.y_offset = 0
         self.x_offset = 0
         self._col_layout = []
         self._content_width = 0
+        self._scales = {}
+        self._decimals = {}
+        self._redraw_scheduled = False
+        self._configure_after_id = None
 
         self._build_ui()
         self._start_loading()
@@ -1536,11 +1145,14 @@ class OutfitTableApp(ttk.Frame):
 
     def _save_config(self):
         data = {}
-        if self.faction_vars:
-            data["factions"] = [name for name, var in self.faction_vars.items()
-                                if var.get()]
-        elif "factions" in self.config:
-            data["factions"] = self.config["factions"]
+        if self.HAS_FACTIONS:
+            if self.faction_vars:
+                data["factions"] = [name for name, var in self.faction_vars.items()
+                                    if var.get()]
+            elif "factions" in self.config:
+                data["factions"] = self.config["factions"]
+        if self.HAS_SHOW_ALL and self.show_all_var is not None:
+            data["show_all"] = bool(self.show_all_var.get())
         try:
             with open(self.config_path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
@@ -1557,7 +1169,9 @@ class OutfitTableApp(ttk.Frame):
         self.status_var = tk.StringVar(value="")
         ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
 
-        self._build_faction_bar()
+        self._build_extra_bar(bar)
+        if self.HAS_FACTIONS:
+            self._build_faction_bar()
 
         paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
@@ -1584,8 +1198,7 @@ class OutfitTableApp(ttk.Frame):
             x += width
         self._content_width = x
 
-        self.table_canvas.bind("<Configure>",
-                               lambda event: self._redraw_table())
+        self.table_canvas.bind("<Configure>", self._on_table_configure)
         self.table_canvas.bind("<MouseWheel>", self._on_wheel)
         self.table_canvas.bind("<Button-1>", self._on_click)
         self.table_canvas.bind("<Button-3>", self._on_right_click)
@@ -1619,25 +1232,25 @@ class OutfitTableApp(ttk.Frame):
                                     background=ENTRY_BG, foreground=FG,
                                     activebackground=SELECT_BG,
                                     activeforeground="#ffffff")
-        self.context_menu.add_command(label="Copy Name",
-                                      command=self._copy_name)
+        self._build_context_menu(self.context_menu)
 
     def _start_loading(self):
-        self.status_var.set("Loading outfits...")
+        self.status_var.set("Loading {}s...".format(self.NOUN))
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _load_worker(self):
         try:
             outfits = ek.parse_outfits(self.data_dir)
             rows = type(self).BUILDER(outfits)
-            self.root.after(0, self._load_done, outfits, rows)
+            self.root.after(0, self._on_data_loaded, outfits, rows)
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
             self.root.after(0, self._load_error, str(exc))
 
-    def _load_done(self, outfits, rows):
+    def _on_data_loaded(self, outfits, rows):
         self.outfits = outfits
         self.all_rows = rows
-        self._build_faction_checkboxes(sorted({row["faction"] for row in rows}))
+        if self.HAS_FACTIONS:
+            self._build_faction_checkboxes(sorted({row["faction"] for row in rows}))
         self._refresh_rows()
 
     def _load_error(self, message):
@@ -1683,12 +1296,14 @@ class OutfitTableApp(ttk.Frame):
         return checked
 
     def _refresh_rows(self):
+        base = self._base_rows()
         filters = self._current_factions()
         if filters is None:
-            self.rows = list(self.all_rows)
+            self.rows = list(base)
         else:
-            self.rows = [row for row in self.all_rows if row["faction"] in filters]
+            self.rows = [row for row in base if row["faction"] in filters]
         self._apply_sort()
+        self._recompute_columns()
         self._select_first()
         self._start_preload()
 
@@ -1697,7 +1312,7 @@ class OutfitTableApp(ttk.Frame):
             self._sort_reverse = not self._sort_reverse
         else:
             self._sort_key = key
-            self._sort_reverse = key not in ("name", "faction")
+            self._sort_reverse = key not in self.TEXT_KEYS
         self._apply_sort()
         self._select_first()
 
@@ -1798,17 +1413,18 @@ class OutfitTableApp(ttk.Frame):
             return value
         return format(value, ",.{0}f".format(decimals))
 
-    def _column_decimals(self):
-        """Return the decimal places to use for each numeric column."""
-        decimals = {}
+    def _recompute_columns(self):
+        """Cache per-column scales and decimal places from the current rows."""
+        self._decimals = {}
+        self._scales = {}
         for key in self.numeric_keys:
+            values = [row[key] for row in self.rows]
             if key in self.RATIO_KEYS or key in ("energy", "heat"):
-                decimals[key] = 3
+                self._decimals[key] = 3
             else:
-                values = [row[key] for row in self.rows]
-                decimals[key] = max(self._decimal_places(value)
-                                    for value in values)
-        return decimals
+                self._decimals[key] = max(self._decimal_places(value)
+                                          for value in values)
+            self._scales[key] = (min(values), max(values)) if values else (0.0, 0.0)
 
     def _redraw_table(self):
         canvas = self.table_canvas
@@ -1823,24 +1439,8 @@ class OutfitTableApp(ttk.Frame):
 
         # Each numeric column is scaled independently from green to red, and
         # formatted with enough decimal places to keep its values aligned.
-        scales = {}
-        decimals = self._column_decimals()
-        for key in self.numeric_keys:
-            values = [row[key] for row in self.rows]
-            scales[key] = (min(values), max(values))
-
-        # Header row stays fixed while the body scrolls vertically.
-        for key, x, col_w, anchor in self._col_layout:
-            x0 = x - self.x_offset
-            x1 = x + col_w - self.x_offset
-            if x1 < 0 or x0 > width:
-                continue
-            canvas.create_rectangle(x0, 0, x1, self.HEADER_H,
-                                    fill="#2d2d2d", outline="#111111")
-            text_x = x1 - 6 if anchor == "e" else x0 + 6
-            canvas.create_text(text_x, self.HEADER_H // 2,
-                               anchor=anchor, text=self._header_for(key),
-                               fill=FG)
+        scales = self._scales
+        decimals = self._decimals
 
         first = max(0, int(self.y_offset // self.ROW_H))
         last = min(len(self.rows),
@@ -1871,6 +1471,19 @@ class OutfitTableApp(ttk.Frame):
                 canvas.create_rectangle(1, y0 + 1, width - 1, y1 - 1,
                                         fill="", outline=SELECT_BG, width=2)
 
+        # Header row is drawn last so scrolled cells never cover it.
+        for key, x, col_w, anchor in self._col_layout:
+            x0 = x - self.x_offset
+            x1 = x + col_w - self.x_offset
+            if x1 < 0 or x0 > width:
+                continue
+            canvas.create_rectangle(x0, 0, x1, self.HEADER_H,
+                                    fill="#2d2d2d", outline="#111111")
+            text_x = x1 - 6 if anchor == "e" else x0 + 6
+            canvas.create_text(text_x, self.HEADER_H // 2,
+                               anchor=anchor, text=self._header_for(key),
+                               fill=FG)
+
     def _column_at(self, x):
         for key, col_x, col_w, _ in self._col_layout:
             if col_x <= x < col_x + col_w:
@@ -1896,12 +1509,12 @@ class OutfitTableApp(ttk.Frame):
             self.y_offset -= (1 if event.delta > 0 else -1) * self.ROW_H
         self._clamp_offsets()
         self._update_scrollbars()
-        self._redraw_table()
+        self._schedule_redraw()
 
     def _on_y_scrollbar(self, action, *args):
-        total = self._max_y_offset()
+        content = self._content_height()
         if action == "moveto":
-            self.y_offset = int(float(args[0]) * total)
+            self.y_offset = int(float(args[0]) * content)
         elif action == "scroll":
             amount = int(args[1])
             if args[2] == "units":
@@ -1910,12 +1523,12 @@ class OutfitTableApp(ttk.Frame):
                 self.y_offset += amount * max(1, self.table_canvas.winfo_height())
         self._clamp_offsets()
         self._update_scrollbars()
-        self._redraw_table()
+        self._schedule_redraw()
 
     def _on_x_scrollbar(self, action, *args):
-        total = self._max_x_offset()
+        content = self._content_width
         if action == "moveto":
-            self.x_offset = int(float(args[0]) * total)
+            self.x_offset = int(float(args[0]) * content)
         elif action == "scroll":
             amount = int(args[1])
             if args[2] == "units":
@@ -1924,7 +1537,7 @@ class OutfitTableApp(ttk.Frame):
                 self.x_offset += amount * max(1, self.table_canvas.winfo_width())
         self._clamp_offsets()
         self._update_scrollbars()
-        self._redraw_table()
+        self._schedule_redraw()
 
     def _max_y_offset(self):
         return max(0, self.HEADER_H + len(self.rows) * self.ROW_H
@@ -1938,20 +1551,47 @@ class OutfitTableApp(ttk.Frame):
         self.x_offset = max(0, min(self.x_offset, self._max_x_offset()))
 
     def _update_scrollbars(self):
-        total_y = self._max_y_offset()
-        total_x = self._max_x_offset()
-        if total_y <= 0:
+        viewport_h = max(1, self.table_canvas.winfo_height())
+        content_h = self._content_height()
+        if content_h <= viewport_h:
             self.y_scroll.set(0.0, 1.0)
         else:
-            first = self.y_offset / total_y
-            last = (self.y_offset + self.table_canvas.winfo_height()) / total_y
+            first = self.y_offset / content_h
+            last = (self.y_offset + viewport_h) / content_h
             self.y_scroll.set(first, min(1.0, last))
-        if total_x <= 0:
+
+        viewport_w = max(1, self.table_canvas.winfo_width())
+        content_w = self._content_width
+        if content_w <= viewport_w:
             self.x_scroll.set(0.0, 1.0)
         else:
-            first = self.x_offset / total_x
-            last = (self.x_offset + self.table_canvas.winfo_width()) / total_x
+            first = self.x_offset / content_w
+            last = (self.x_offset + viewport_w) / content_w
             self.x_scroll.set(first, min(1.0, last))
+
+    def _content_height(self):
+        return self.HEADER_H + len(self.rows) * self.ROW_H
+
+    def _schedule_redraw(self):
+        if not self._redraw_scheduled:
+            self._redraw_scheduled = True
+            self.table_canvas.after_idle(self._do_redraw)
+
+    def _do_redraw(self):
+        self._redraw_scheduled = False
+        self._redraw_table()
+
+    def _on_table_configure(self, event):
+        if self._configure_after_id is not None:
+            self.table_canvas.after_cancel(self._configure_after_id)
+        self._configure_after_id = self.table_canvas.after(50,
+                                                           self._do_configure_redraw)
+
+    def _do_configure_redraw(self):
+        self._configure_after_id = None
+        self._clamp_offsets()
+        self._update_scrollbars()
+        self._redraw_table()
 
     def _on_right_click(self, event):
         if not self.rows or event.y < self.HEADER_H:
@@ -1974,10 +1614,10 @@ class OutfitTableApp(ttk.Frame):
 
     def _show_preview(self, row):
         self._current_row = row
-        self.name_var.set(row["name"])
+        self.name_var.set(self._preview_title(row))
 
-        decimals = self._column_decimals()
-        lines = []
+        decimals = self._decimals
+        lines = list(self._extra_preview_lines(row))
         for header, key, _, _ in self.COLUMNS:
             if key == "name":
                 continue
@@ -1996,7 +1636,7 @@ class OutfitTableApp(ttk.Frame):
         if self._current_row is None:
             return
 
-        path = self._outfit_image_path(self._current_row)
+        path = self._row_image_path(self._current_row)
         if path is None:
             canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
             return
@@ -2024,6 +1664,27 @@ class OutfitTableApp(ttk.Frame):
                 return path
         return None
 
+    def _row_image_path(self, row):
+        """Return the image path for a row; subclasses may override."""
+        return self._outfit_image_path(row)
+
+    def _base_rows(self):
+        """Return the rows to display before filtering and sorting."""
+        return self.all_rows
+
+    def _build_extra_bar(self, bar):
+        """Hook for subclasses to add extra top-bar controls."""
+
+    def _build_context_menu(self, menu):
+        menu.add_command(label="Copy Name",
+                         command=self._copy_name)
+
+    def _preview_title(self, row):
+        return row["name"]
+
+    def _extra_preview_lines(self, row):
+        return []
+
     def _load_photo(self, path, max_size):
         if path in self._photo_cache:
             return self._photo_cache[path]
@@ -2043,7 +1704,7 @@ class OutfitTableApp(ttk.Frame):
         paths = []
         seen = set()
         for row in self.rows:
-            path = self._outfit_image_path(row)
+            path = self._row_image_path(row)
             if path and path not in seen:
                 seen.add(path)
                 paths.append(path)
@@ -2078,7 +1739,7 @@ class OutfitTableApp(ttk.Frame):
             return
         loaded = 0
         for row in self.rows:
-            path = self._outfit_image_path(row)
+            path = self._row_image_path(row)
             if path is None or path in self._photo_cache:
                 loaded += 1
         self.status_var.set("{} / {} {}s loaded".format(loaded, total, noun))
@@ -2108,6 +1769,159 @@ class EnginesApp(OutfitTableApp):
     CONFIG_FILENAME = ".endless_sky_engines.json"
     DEFAULT_SORT_KEY = "thrust"
     DEFAULT_SORT_REVERSE = True
+
+
+class ShipBunksApp(OutfitTableApp):
+    """Tab that lists every ship by its maximum achievable crew capacity.
+
+    Each ship shows its game sprite beside the table. The calculation assumes
+    cargo space is converted to outfit space with "Outfits Expansion" and the
+    resulting outfit space is filled with "Bunk Room" outfits.
+    """
+
+    COLUMNS = SHIP_COLUMNS
+    TEXT_KEYS = {"name", "display_name", "category"}
+    REVERSED_KEYS = {"max_bunks", "bunks", "cargo", "outfit", "expansions",
+                     "outfit_total", "bunk_rooms", "leftover_outfit",
+                     "shields", "hull", "crew"}
+    RATIO_KEYS = set()
+    HAS_FACTIONS = False
+    HAS_SHOW_ALL = True
+    NOUN = "ship"
+    CONFIG_FILENAME = ".endless_sky_ship_bunks.json"
+    DEFAULT_SORT_KEY = "max_bunks"
+    DEFAULT_SORT_REVERSE = True
+
+    def _load_worker(self):
+        try:
+            blocks = parse_blocks(self.data_dir)
+            ships = resolve_ships(blocks)
+            full_rows = build_rows(ships)
+            deduped = dedupe_rows(full_rows)
+            self.root.after(0, self._on_data_loaded, ships, full_rows, deduped)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._load_error, str(exc))
+
+    def _on_data_loaded(self, ships, full_rows, deduped_rows):
+        self.ships = ships
+        self.full_rows = full_rows
+        self.deduped_rows = deduped_rows
+        self._refresh_rows()
+
+    def _base_rows(self):
+        if self.show_all_var is None:
+            return self.deduped_rows
+        return self.full_rows if self.show_all_var.get() else self.deduped_rows
+
+    def _build_extra_bar(self, bar):
+        self.show_all_var = tk.BooleanVar(
+            value=bool(self.config.get("show_all", False)))
+        ttk.Checkbutton(bar, text="Show all variants",
+                        variable=self.show_all_var,
+                        command=self._on_show_all).pack(side=tk.RIGHT, padx=8)
+
+    def _on_show_all(self):
+        if not self.full_rows:
+            return
+        self._save_config()
+        self._refresh_rows()
+
+    def _row_image_path(self, row):
+        """Return the on-disk path to the ship sprite, or its first frame."""
+        key = (row.get("sprite", ""), row.get("thumbnail", ""))
+        if key in self._path_cache:
+            return self._path_cache[key]
+        path = self._resolve_ship_image(row)
+        self._path_cache[key] = path
+        return path
+
+    def _resolve_ship_image(self, row):
+        sprite = row.get("sprite", "")
+        if sprite:
+            for images_dir in self._image_dirs():
+                marker = "@2x" if images_dir == self.plugin_images_dir else ""
+                path = os.path.join(images_dir, sprite + marker + ".png")
+                if os.path.isfile(path):
+                    return path
+                # Animated ships store frames either in a directory named
+                # after the sprite (e.g. "ship/avgi koryfi/koryfi" ->
+                # koryfi-00.png) or beside it (e.g. "ship/hallucination" ->
+                # hallucination-0.png).
+                frame = self._first_frame(images_dir, sprite, marker)
+                if frame:
+                    return frame
+        thumbnail = row.get("thumbnail", "")
+        if thumbnail:
+            for images_dir in self._image_dirs():
+                marker = "@2x" if images_dir == self.plugin_images_dir else ""
+                path = os.path.join(images_dir, thumbnail + marker + ".png")
+                if os.path.isfile(path):
+                    return path
+        return None
+
+    def _preview_title(self, row):
+        return row["display_name"]
+
+    def _extra_preview_lines(self, row):
+        if row["display_name"] != row["name"]:
+            return ["Source name: {}".format(row["name"])]
+        return []
+
+    def _build_context_menu(self, menu):
+        menu.add_command(label="Copy Source Name",
+                         command=lambda: self._copy_field("name"))
+        menu.add_command(label="Copy In-Game Name",
+                         command=lambda: self._copy_field("display_name"))
+        menu.add_separator()
+        menu.add_command(label="Copy Both Names",
+                         command=self._copy_both_names)
+
+    def _copy_field(self, key):
+        if self.selected < 0 or self.selected >= len(self.rows):
+            return
+        self._copy_to_clipboard(str(self.rows[self.selected][key]))
+
+    def _copy_both_names(self):
+        if self.selected < 0 or self.selected >= len(self.rows):
+            return
+        row = self.rows[self.selected]
+        self._copy_to_clipboard("{}\t{}".format(row["name"], row["display_name"]))
+
+    def _copy_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()
+
+    def _image_dirs(self):
+        """Yield the image roots to search, plugin first when present."""
+        if self.plugin_images_dir:
+            yield self.plugin_images_dir
+        yield self.images_dir
+
+    def _first_frame(self, images_dir, sprite, marker):
+        """Find the lowest-numbered animation frame for a sprite path."""
+        parent = os.path.dirname(sprite)
+        base = os.path.basename(sprite)
+        if not parent or not base:
+            return None
+
+        directory = os.path.join(images_dir, parent)
+        if not os.path.isdir(directory):
+            return None
+
+        prefix = base + "-"
+        suffix = marker + ".png"
+        candidates = []
+        for name in os.listdir(directory):
+            if name.startswith(prefix) and name.endswith(suffix):
+                middle = name[len(prefix):-len(suffix)]
+                if middle.isdigit():
+                    candidates.append((int(middle), name))
+
+        if not candidates:
+            return None
+        candidates.sort()
+        return os.path.join(directory, candidates[0][1])
 
 
 def main():
