@@ -30,6 +30,8 @@ class OutfitTableApp(ttk.Frame):
     TEXT_KEYS = {"name", "faction"}
     HAS_FACTIONS = True
     HAS_SHOW_ALL = False
+    # When True, numeric columns that are all zero for every row are hidden.
+    HIDE_ZERO_COLUMNS = False
 
     ROW_H = 24
     HEADER_H = 26
@@ -383,6 +385,22 @@ class OutfitTableApp(ttk.Frame):
                                           for value in values)
             self._scales[key] = (min(values), max(values))
 
+    def _visible_columns(self):
+        """Return the columns to display for the current rows.
+
+        When HIDE_ZERO_COLUMNS is set, numeric columns that are all zero for
+        every row are dropped (e.g. a damage type no weapon of this group
+        deals).
+        """
+        if not self.HIDE_ZERO_COLUMNS:
+            return self.COLUMNS
+        hidden = set()
+        for key in self.numeric_keys:
+            values = [row[key] for row in self.rows]
+            if values and all(value == 0 for value in values):
+                hidden.add(key)
+        return [column for column in self.COLUMNS if column[1] not in hidden]
+
     def _compute_column_widths(self):
         """Auto-size every column to its widest text.
 
@@ -395,7 +413,7 @@ class OutfitTableApp(ttk.Frame):
 
         x = 0
         layout = []
-        for header, key, anchor in self.COLUMNS:
+        for header, key, anchor in self._visible_columns():
             longest = self._measure_text(header)
             for row in self.rows:
                 text = self._format_cell(row, key, decimals.get(key, 0))
@@ -621,7 +639,7 @@ class OutfitTableApp(ttk.Frame):
 
         decimals = self._decimals
         lines = list(self._extra_preview_lines(row))
-        for header, key, _ in self.COLUMNS:
+        for header, key, _ in self._visible_columns():
             if key == "name":
                 continue
             value = row.get(key, "")

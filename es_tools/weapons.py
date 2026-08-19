@@ -35,6 +35,7 @@ class WeaponCategoryTable(OutfitTableApp):
     NOUN = "weapon"
     HAS_FACTIONS = True
     HAS_SHOW_ALL = False
+    HIDE_ZERO_COLUMNS = True
     WEAPON_TYPES = None
     WEAPON_MOUNT = None
     WEAPON_OUTFITS = None
