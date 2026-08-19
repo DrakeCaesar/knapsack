@@ -1,10 +1,18 @@
-"""The Weapons tab: weapon comparison tables grouped by weapon type."""
+"""The Weapons tab: comparison tables grouped first by mount, then by type.
 
+The outer notebook has one tab per mount (Guns, Turrets, Secondary Weapons);
+each mount tab holds an inner notebook with one tab per weapon type (beams,
+projectiles, missiles, ...) that actually appears for that mount. The weapon
+data is parsed once up front and shared with every table.
+"""
+
+import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .outfits import WEAPON_COLUMNS, build_weapon_rows
+from .outfits import WEAPON_COLUMNS, build_weapon_rows, weapon_mount_types
 from .parse import parse_weapon_outfits
+from .paths import DATA_DIR
 from .table import OutfitTableApp
 
 
@@ -28,24 +36,33 @@ class WeaponCategoryTable(OutfitTableApp):
     HAS_FACTIONS = True
     HAS_SHOW_ALL = False
     WEAPON_TYPES = None
+    WEAPON_MOUNT = None
+    WEAPON_OUTFITS = None
 
     def _load_worker(self):
         try:
-            outfits = parse_weapon_outfits(self.data_dir)
-            rows = build_weapon_rows(outfits, self.WEAPON_TYPES)
+            outfits = self.WEAPON_OUTFITS
+            if outfits is None:
+                outfits = parse_weapon_outfits(self.data_dir)
+            rows = build_weapon_rows(outfits, self.WEAPON_TYPES, self.WEAPON_MOUNT)
             self.root.after(0, self._on_data_loaded, outfits, rows)
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
             self.root.after(0, self._load_error, str(exc))
 
 
 class WeaponsApp(ttk.Frame):
-    """Tab with a sub-tab per weapon type, comparing all of their stats.
+    """Tab comparing weapons, split by mount and then by weapon type.
 
-    Weapons are grouped by how they behave (beams, projectiles, missiles, ...)
-    instead of by mount, so weapons that share a group of statistics are
-    compared together. The "Mount" column still shows whether each weapon is a
-    gun, turret, or secondary weapon.
+    Outer notebook: Guns / Turrets / Secondary Weapons.
+    Inner notebook (per mount): Beams / Projectiles / Missiles / Anti-Missile /
+    Tractor Beams, but only for types that actually exist in that mount.
     """
+
+    MOUNTS = [
+        ("Guns", "Guns"),
+        ("Turrets", "Turrets"),
+        ("Secondary Weapons", "Secondary Weapons"),
+    ]
 
     TYPES = [
         ("Beams", ("Beam",)),
@@ -59,20 +76,58 @@ class WeaponsApp(ttk.Frame):
         super().__init__(master)
         self.root = master.winfo_toplevel()
         self.apps = {}
-        self._build_ui()
+        self.status_var = tk.StringVar(value="Loading weapons...")
+        ttk.Label(self, textvariable=self.status_var, padding=12).pack()
+        threading.Thread(target=self._load_worker, daemon=True).start()
 
-    def _build_ui(self):
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill=tk.BOTH, expand=True)
+    def _load_worker(self):
+        try:
+            outfits = parse_weapon_outfits(DATA_DIR)
+            groups = weapon_mount_types(outfits)
+            self.root.after(0, self._build_ui, outfits, groups)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._load_error, str(exc))
 
-        for label, types in self.TYPES:
-            tab = ttk.Frame(notebook)
-            slug = label.lower().replace(" ", "_")
-            cls = type("Weapons" + label.replace(" ", ""),
-                       (WeaponCategoryTable,),
-                       {"WEAPON_TYPES": types,
-                        "CONFIG_FILENAME": ".endless_sky_weapons_" + slug + ".json"})
-            app = cls(tab)
-            app.pack(fill=tk.BOTH, expand=True)
-            notebook.add(tab, text=label)
-            self.apps[label] = app
+    def _load_error(self, message):
+        self.status_var.set("Error: {}".format(message))
+
+    def _build_ui(self, outfits, groups):
+        for child in self.winfo_children():
+            child.destroy()
+
+        types_by_mount = {}
+        for mount, wtype in groups:
+            types_by_mount.setdefault(mount, []).append(wtype)
+
+        outer = ttk.Notebook(self)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        for mount_label, mount in self.MOUNTS:
+            present = types_by_mount.get(mount)
+            if not present:
+                continue
+
+            mount_tab = ttk.Frame(outer)
+            inner = ttk.Notebook(mount_tab)
+            inner.pack(fill=tk.BOTH, expand=True)
+
+            for type_label, type_tuple in self.TYPES:
+                if type_tuple[0] not in present:
+                    continue
+                type_tab = ttk.Frame(inner)
+                slug = "{}_{}".format(mount_label.lower().replace(" ", "_"),
+                                      type_label.lower().replace(" ", "_"))
+                cls = type("Weapons" + mount_label.replace(" ", "")
+                           + type_label.replace(" ", ""),
+                           (WeaponCategoryTable,),
+                           {"WEAPON_TYPES": type_tuple,
+                            "WEAPON_MOUNT": mount,
+                            "WEAPON_OUTFITS": outfits,
+                            "CONFIG_FILENAME": ".endless_sky_weapons_"
+                            + slug + ".json"})
+                app = cls(type_tab)
+                app.pack(fill=tk.BOTH, expand=True)
+                inner.add(type_tab, text=type_label)
+                self.apps[slug] = app
+
+            outer.add(mount_tab, text=mount_label)

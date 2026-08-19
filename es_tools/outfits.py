@@ -183,18 +183,20 @@ def weapon_type(weapon):
     return "Projectile"
 
 
-def build_weapon_rows(outfits, types=None):
-    """Return one row per player weapon outfit of the given type(s).
+def build_weapon_rows(outfits, types=None, mount=None):
+    """Return one row per player weapon outfit of the given type(s) and mount.
 
-    Every stat available on a weapon block is exposed as a column, so weapons
-    with very different groups of statistics can still be compared side by
-    side. ``types`` is a set of weapon_type() results, or None for all.
+    ``types`` is a set of weapon_type() results, or None for all types.
+    ``mount`` is a category ("Guns", "Turrets", "Secondary Weapons"), or None
+    for all mounts.
     """
     rows = []
     for outfit in outfits:
         attrs = outfit["attrs"]
         category = attrs.get("category", "")
         if category not in ("Guns", "Turrets", "Secondary Weapons"):
+            continue
+        if mount is not None and category != mount:
             continue
         weapon = attrs.get("weapon", {})
         if not weapon:
@@ -306,3 +308,32 @@ def build_weapon_rows(outfits, types=None):
 
     rows.sort(key=lambda row: (-row["dps"], row["name"].lower()))
     return rows
+
+
+def weapon_mount_types(outfits):
+    """Return the ordered (mount, type) groups that actually contain weapons.
+
+    Used to build the Weapons tab's nested structure - mount first, then the
+    weapon type - so only tabs that really have weapons are created.
+    """
+    mounts = ["Guns", "Turrets", "Secondary Weapons"]
+    type_order = ["Beam", "Projectile", "Missile", "Anti-Missile",
+                  "Tractor Beam"]
+
+    present = set()
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        category = attrs.get("category", "")
+        if category not in mounts:
+            continue
+        weapon = attrs.get("weapon", {})
+        if not weapon:
+            continue
+        present.add((category, weapon_type(weapon)))
+
+    groups = []
+    for mount in mounts:
+        for wtype in type_order:
+            if (mount, wtype) in present:
+                groups.append((mount, wtype))
+    return groups
