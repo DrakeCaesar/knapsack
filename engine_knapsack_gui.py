@@ -5,7 +5,7 @@ Run from the repository root (or anywhere) with:
 
     python knapsack/engine_knapsack_gui.py
 
-The window has four tabs:
+The window has five tabs:
 
   * "Engine Picker" - lists every non-dominated (thrust, turn) combination,
     each with two small bars: blue for forward thrust and orange for turning.
@@ -18,6 +18,8 @@ The window has four tabs:
     outfit thumbnail next to the table.
 
   * "Engines" - compares the stats of every engine outfit.
+
+  * "Weapons" - compares weapon stats, with a sub-tab per weapon category.
 """
 
 import json
@@ -92,6 +94,22 @@ ENGINE_COLUMNS = [
     ("Heat/s", "heat", 70, "e"),
     ("Thrust/Space", "thrust_per_space", 100, "e"),
     ("Turn/Space", "turn_per_space", 100, "e"),
+]
+
+# Weapon comparison table columns: (header, row key, width, anchor).
+WEAPON_COLUMNS = [
+    ("Name", "name", 200, "w"),
+    ("Faction", "faction", 110, "w"),
+    ("Cost", "cost", 90, "e"),
+    ("Mass", "mass", 70, "e"),
+    ("Space", "space", 70, "e"),
+    ("Shield", "shield_damage", 80, "e"),
+    ("Hull", "hull_damage", 80, "e"),
+    ("Range", "range", 90, "e"),
+    ("Reload", "reload", 70, "e"),
+    ("DPS", "dps", 80, "e"),
+    ("Energy/s", "energy", 90, "e"),
+    ("Heat/s", "heat", 80, "e"),
 ]
 
 
@@ -210,6 +228,52 @@ def parse_blocks(data_dir):
                 i += 1
 
     return blocks
+
+
+def parse_weapon_outfits(data_dir):
+    """Parse every top-level outfit, capturing the nested weapon block.
+
+    The weapon block holds the actual combat stats (damage, reload, range,
+    etc.), which the generic outfit parser does not collect.
+    """
+    outfits = []
+    for path in data_files(data_dir):
+        faction = os.path.basename(os.path.dirname(path))
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+
+        i = 0
+        n = len(lines)
+        while i < n:
+            level = indent(lines[i])
+            tokens = tokenize(lines[i])
+
+            if level == 0 and len(tokens) >= 2 and tokens[0] == "outfit":
+                name = tokens[1]
+                attrs = {}
+                weapon = {}
+                i += 1
+                while i < n and indent(lines[i]) > 0:
+                    depth = indent(lines[i])
+                    fields = tokenize(lines[i])
+                    if depth == 1 and fields and fields[0] == "weapon":
+                        i += 1
+                        while i < n and indent(lines[i]) > 1:
+                            if indent(lines[i]) == 2 and len(tokenize(lines[i])) >= 2:
+                                w = tokenize(lines[i])
+                                weapon[w[0]] = parse_value(w[1])
+                            i += 1
+                        continue
+                    if depth == 1 and len(fields) >= 2:
+                        attrs[fields[0]] = parse_value(fields[1])
+                    i += 1
+
+                attrs["weapon"] = weapon
+                outfits.append({"name": name, "faction": faction, "attrs": attrs})
+            else:
+                i += 1
+
+    return outfits
 
 
 def apply_ops(attrs, ops):
@@ -400,6 +464,57 @@ def build_engine_rows(outfits):
         })
 
     rows.sort(key=lambda row: (-row["thrust"], row["name"].lower()))
+    return rows
+
+
+def build_weapon_rows(outfits, category=None, series=None):
+    """Return one row per weapon outfit matching the given category or series."""
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if category is not None and attrs.get("category") != category:
+            continue
+        if series is not None and attrs.get("series") != series:
+            continue
+        weapon = attrs.get("weapon", {})
+        if not weapon:
+            continue
+
+        cost = number(attrs, "cost")
+        mass = number(attrs, "mass")
+        space = max(0.0, -number(attrs, "outfit space"))
+
+        shield = number(weapon, "shield damage")
+        hull = number(weapon, "hull damage")
+        velocity = number(weapon, "velocity")
+        lifetime = number(weapon, "lifetime")
+        rng = number(weapon, "range")
+        if rng <= 0 and velocity > 0 and lifetime > 0:
+            rng = velocity * lifetime
+        burst = max(1, int(number(weapon, "burst count") or 1))
+        reload = max(0.001, number(weapon, "reload") / 60.0)
+        dps = (shield + hull) * burst / reload
+        energy = number(weapon, "firing energy") * burst / reload
+        heat = number(weapon, "firing heat") * burst / reload
+        thumbnail = attrs.get("thumbnail", "")
+
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "cost": cost,
+            "mass": mass,
+            "space": space,
+            "shield_damage": shield,
+            "hull_damage": hull,
+            "range": rng,
+            "reload": reload,
+            "dps": dps,
+            "energy": energy,
+            "heat": heat,
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (-row["dps"], row["name"].lower()))
     return rows
 
 
@@ -1419,12 +1534,14 @@ class OutfitTableApp(ttk.Frame):
         self._scales = {}
         for key in self.numeric_keys:
             values = [row[key] for row in self.rows]
-            if key in self.RATIO_KEYS or key in ("energy", "heat"):
+            if not values:
+                continue
+            if key in self.RATIO_KEYS or key in ("energy", "heat", "reload", "dps"):
                 self._decimals[key] = 3
             else:
                 self._decimals[key] = max(self._decimal_places(value)
                                           for value in values)
-            self._scales[key] = (min(values), max(values)) if values else (0.0, 0.0)
+            self._scales[key] = (min(values), max(values))
 
     def _redraw_table(self):
         canvas = self.table_canvas
@@ -1924,6 +2041,63 @@ class ShipBunksApp(OutfitTableApp):
         return os.path.join(directory, candidates[0][1])
 
 
+class WeaponCategoryTable(OutfitTableApp):
+    """Heatmap table comparing the weapons of a single category."""
+
+    COLUMNS = WEAPON_COLUMNS
+    TEXT_KEYS = {"name", "faction"}
+    REVERSED_KEYS = {"shield_damage", "hull_damage", "range", "dps"}
+    RATIO_KEYS = set()
+    NOUN = "weapon"
+    HAS_FACTIONS = True
+    HAS_SHOW_ALL = False
+    WEAPON_CATEGORY = None
+    WEAPON_SERIES = None
+
+    def _load_worker(self):
+        try:
+            outfits = parse_weapon_outfits(self.data_dir)
+            rows = build_weapon_rows(outfits, self.WEAPON_CATEGORY,
+                                     self.WEAPON_SERIES)
+            self.root.after(0, self._on_data_loaded, outfits, rows)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._load_error, str(exc))
+
+
+class WeaponsApp(ttk.Frame):
+    """Tab with a sub-tab per weapon type, comparing weapon stats."""
+
+    CATEGORIES = [
+        ("Guns", "Guns", None),
+        ("Turrets", "Turrets", None),
+        ("Anti-Missile", None, "Anti-Missile"),
+        ("Secondary Weapons", "Secondary Weapons", None),
+    ]
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.root = master.winfo_toplevel()
+        self.apps = {}
+        self._build_ui()
+
+    def _build_ui(self):
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        for label, category, series in self.CATEGORIES:
+            tab = ttk.Frame(notebook)
+            slug = label.lower().replace(" ", "_")
+            cls = type("Weapons" + label.replace(" ", ""),
+                       (WeaponCategoryTable,),
+                       {"WEAPON_CATEGORY": category,
+                        "WEAPON_SERIES": series,
+                        "CONFIG_FILENAME": ".endless_sky_weapons_" + slug + ".json"})
+            app = cls(tab)
+            app.pack(fill=tk.BOTH, expand=True)
+            notebook.add(tab, text=label)
+            self.apps[label] = app
+
+
 def main():
     root = tk.Tk()
     root.title("Endless Sky Tools")
@@ -1953,6 +2127,11 @@ def main():
     engines_app = EnginesApp(engines_tab)
     engines_app.pack(fill=tk.BOTH, expand=True)
     notebook.add(engines_tab, text="Engines")
+
+    weapons_tab = ttk.Frame(notebook)
+    weapons_app = WeaponsApp(weapons_tab)
+    weapons_app.pack(fill=tk.BOTH, expand=True)
+    notebook.add(weapons_tab, text="Weapons")
 
     def on_close():
         generators_app._on_close()
