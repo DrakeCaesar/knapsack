@@ -1419,6 +1419,9 @@ class ShipBunksApp(ttk.Frame):
 class GeneratorsApp(ttk.Frame):
     """Tab that compares the stats of every generator outfit."""
 
+    ROW_H = 24
+    HEADER_H = 26
+
     def __init__(self, master):
         super().__init__(master)
         self.root = master.winfo_toplevel()
@@ -1445,6 +1448,14 @@ class GeneratorsApp(ttk.Frame):
         self._preload_paths = []
         self._preload_index = 0
         self._preload_attempted = set()
+        self.numeric_keys = [key for _, key, _, _ in GENERATOR_COLUMNS
+                             if key not in ("name", "faction")]
+        self.reversed_keys = {"energy", "energy_per_space", "energy_per_heat"}
+        self.selected = -1
+        self.y_offset = 0
+        self.x_offset = 0
+        self._col_layout = []
+        self._content_width = 0
 
         self._build_ui()
         self._start_loading()
@@ -1485,30 +1496,39 @@ class GeneratorsApp(ttk.Frame):
         paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        # Left: sortable table of generators.
+        # Left: canvas heatmap table of generators.
         table_frame = ttk.Frame(paned)
-        columns = [key for _, key, _, _ in GENERATOR_COLUMNS]
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings",
-                                 selectmode="browse")
-        for header, key, width, anchor in GENERATOR_COLUMNS:
-            self.tree.heading(key, text=header, anchor=anchor,
-                              command=lambda k=key: self._on_sort(k))
-            self.tree.column(key, width=width, anchor=anchor,
-                             stretch=(key in ("name", "faction")))
+        self.table_canvas = tk.Canvas(table_frame, background=ENTRY_BG,
+                                      highlightthickness=0)
+        self.y_scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
+                                      command=self._on_y_scrollbar)
+        self.x_scroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
+                                      command=self._on_x_scrollbar)
 
-        yscroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
-                                command=self.tree.yview)
-        xscroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
-                                command=self.tree.xview)
-        self.tree.configure(yscrollcommand=yscroll.set,
-                            xscrollcommand=xscroll.set)
-
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        yscroll.grid(row=0, column=1, sticky="ns")
-        xscroll.grid(row=1, column=0, sticky="ew")
+        self.table_canvas.grid(row=0, column=0, sticky="nsew")
+        self.y_scroll.grid(row=0, column=1, sticky="ns")
+        self.x_scroll.grid(row=1, column=0, sticky="ew")
         table_frame.rowconfigure(0, weight=1)
         table_frame.columnconfigure(0, weight=1)
         paned.add(table_frame, weight=3)
+
+        x = 0
+        for header, key, width, anchor in GENERATOR_COLUMNS:
+            self._col_layout.append((key, x, width, anchor))
+            x += width
+        self._content_width = x
+
+        self.table_canvas.bind("<Configure>",
+                               lambda event: self._redraw_table())
+        self.table_canvas.bind("<MouseWheel>", self._on_wheel)
+        self.table_canvas.bind("<Button-1>", self._on_click)
+        self.table_canvas.bind("<Button-3>", self._on_right_click)
+        self.table_canvas.bind("<Up>", lambda event: self._move_selection(-1))
+        self.table_canvas.bind("<Down>", lambda event: self._move_selection(1))
+        self.table_canvas.bind("<Prior>",
+                               lambda event: self._move_selection(-self._page_size()))
+        self.table_canvas.bind("<Next>",
+                               lambda event: self._move_selection(self._page_size()))
 
         # Right: outfit thumbnail preview.
         preview = ttk.Frame(paned, padding=6)
@@ -1527,11 +1547,9 @@ class GeneratorsApp(ttk.Frame):
                   justify=tk.LEFT).pack(side=tk.TOP, anchor="w")
         paned.add(preview, weight=2)
 
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
-        self.tree.bind("<Button-3>", self._on_right_click)
         self.canvas.bind("<Configure>", lambda event: self._redraw_preview())
 
-        self.context_menu = tk.Menu(self.tree, tearoff=0,
+        self.context_menu = tk.Menu(self.table_canvas, tearoff=0,
                                     background=ENTRY_BG, foreground=FG,
                                     activebackground=SELECT_BG,
                                     activeforeground="#ffffff")
@@ -1605,7 +1623,7 @@ class GeneratorsApp(ttk.Frame):
         else:
             self.rows = [row for row in self.all_rows if row["faction"] in filters]
         self._apply_sort()
-        self._populate()
+        self._select_first()
         self._start_preload()
 
     def _on_sort(self, key):
@@ -1615,7 +1633,7 @@ class GeneratorsApp(ttk.Frame):
             self._sort_key = key
             self._sort_reverse = key not in ("name", "faction")
         self._apply_sort()
-        self._populate()
+        self._select_first()
 
     def _apply_sort(self):
         key = self._sort_key
@@ -1627,53 +1645,256 @@ class GeneratorsApp(ttk.Frame):
 
         self.rows.sort(key=sort_value, reverse=reverse)
 
-    def _populate(self):
-        self.tree.delete(*self.tree.get_children())
-        for index, row in enumerate(self.rows):
-            values = []
-            for _, key, _, _ in GENERATOR_COLUMNS:
-                value = row[key]
-                if isinstance(value, str):
-                    values.append(value)
-                elif key in ("energy_per_space", "energy_per_heat"):
-                    values.append(format_ratio(value))
-                else:
-                    values.append(format_number(value))
-            self.tree.insert("", "end", iid=str(index), values=values)
-
+    def _select_first(self):
         if self.rows:
-            self.tree.selection_set("0")
-            self.tree.focus("0")
+            self.selected = 0
             self._show_preview(self.rows[0])
         else:
+            self.selected = -1
             self._current_row = None
             self.name_var.set("")
             self.stats_var.set("")
             self._redraw_preview()
+        self.y_offset = 0
+        self._update_scrollbars()
+        self._redraw_table()
 
-    def _on_select(self, event):
-        selection = self.tree.selection()
-        if not selection:
+    def _select(self, index):
+        if index < 0 or index >= len(self.rows):
             return
-        self._show_preview(self.rows[int(selection[0])])
+        self.selected = index
+        self.table_canvas.focus_set()
+        self._show_preview(self.rows[index])
+        self._redraw_table()
+
+    def _move_selection(self, delta):
+        if not self.rows:
+            return
+        new = max(0, min(len(self.rows) - 1, self.selected + delta))
+        if new == self.selected:
+            return
+        self._select(new)
+        row_top = self.HEADER_H + new * self.ROW_H
+        row_bottom = row_top + self.ROW_H
+        view_bottom = self.y_offset + self.table_canvas.winfo_height()
+        if row_top < self.y_offset + self.HEADER_H:
+            self.y_offset = max(0, row_top - self.HEADER_H)
+        elif row_bottom > view_bottom:
+            self.y_offset = min(self._max_y_offset(),
+                                row_bottom - self.table_canvas.winfo_height())
+        self._update_scrollbars()
+        self._redraw_table()
+
+    def _page_size(self):
+        height = self.table_canvas.winfo_height() - self.HEADER_H
+        return max(1, height // self.ROW_H)
+
+    def _heat_color(self, t):
+        """Interpolate a dark green -> orange -> red heatmap color."""
+        stops = ((24, 90, 33), (190, 100, 0), (170, 25, 25))
+        t = max(0.0, min(1.0, t))
+        if t < 0.5:
+            u = t * 2.0
+            a, b = stops[0], stops[1]
+        else:
+            u = (t - 0.5) * 2.0
+            a, b = stops[1], stops[2]
+        rgb = tuple(int(round(a[i] + (b[i] - a[i]) * u)) for i in range(3))
+        return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+    def _cell_color(self, value, min_v, max_v, reverse=False):
+        span = max_v - min_v
+        t = 0.5 if span == 0 else (value - min_v) / span
+        if reverse:
+            t = 1.0 - t
+        return self._heat_color(t)
+
+    def _header_for(self, key):
+        for header, k, _, _ in GENERATOR_COLUMNS:
+            if k == key:
+                return header
+        return key
+
+    def _decimal_places(self, value):
+        """Return the number of meaningful decimal places in a numeric value."""
+        if not isinstance(value, float):
+            return 0
+        if value == int(value):
+            return 0
+        text = repr(value)
+        if "." not in text:
+            return 0
+        return len(text.split(".", 1)[1].rstrip("0"))
+
+    def _format_cell(self, row, key, decimals):
+        value = row[key]
+        if isinstance(value, str):
+            return value
+        return format(value, ",.{0}f".format(decimals))
+
+    def _redraw_table(self):
+        canvas = self.table_canvas
+        canvas.delete("all")
+        if not self.rows:
+            return
+
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width <= 1 or height <= 1:
+            return
+
+        # Each numeric column is scaled independently from green to red, and
+        # formatted with enough decimal places to keep its values aligned.
+        scales = {}
+        decimals = {}
+        for key in self.numeric_keys:
+            values = [row[key] for row in self.rows]
+            scales[key] = (min(values), max(values))
+            if key in ("energy_per_space", "energy_per_heat"):
+                decimals[key] = 3
+            else:
+                decimals[key] = max(self._decimal_places(value)
+                                    for value in values)
+
+        # Header row stays fixed while the body scrolls vertically.
+        for key, x, col_w, anchor in self._col_layout:
+            x0 = x - self.x_offset
+            x1 = x + col_w - self.x_offset
+            if x1 < 0 or x0 > width:
+                continue
+            canvas.create_rectangle(x0, 0, x1, self.HEADER_H,
+                                    fill="#2d2d2d", outline="#111111")
+            text_x = x1 - 6 if anchor == "e" else x0 + 6
+            canvas.create_text(text_x, self.HEADER_H // 2,
+                               anchor=anchor, text=self._header_for(key),
+                               fill=FG)
+
+        first = max(0, int(self.y_offset // self.ROW_H))
+        last = min(len(self.rows),
+                   int((self.y_offset + height - self.HEADER_H) // self.ROW_H) + 2)
+        for index in range(first, last):
+            y0 = self.HEADER_H + index * self.ROW_H - self.y_offset
+            y1 = y0 + self.ROW_H
+            selected = index == self.selected
+            for key, x, col_w, anchor in self._col_layout:
+                x0 = x - self.x_offset
+                x1 = x + col_w - self.x_offset
+                if x1 < 0 or x0 > width:
+                    continue
+                if key in scales:
+                    color = self._cell_color(self.rows[index][key],
+                                             *scales[key],
+                                             reverse=(key in self.reversed_keys))
+                    canvas.create_rectangle(x0, y0, x1 + 1, y1,
+                                            fill=color, outline="")
+                text_x = x1 - 6 if anchor == "e" else x0 + 6
+                text_fill = "#ffffff" if selected else FG
+                canvas.create_text(text_x, y0 + self.ROW_H // 2,
+                                   anchor=anchor,
+                                   text=self._format_cell(self.rows[index], key,
+                                                          decimals.get(key, 0)),
+                                   fill=text_fill)
+            if selected:
+                canvas.create_rectangle(1, y0 + 1, width - 1, y1 - 1,
+                                        fill="", outline=SELECT_BG, width=2)
+
+    def _column_at(self, x):
+        for key, col_x, col_w, _ in self._col_layout:
+            if col_x <= x < col_x + col_w:
+                return key
+        return None
+
+    def _on_click(self, event):
+        if not self.rows:
+            return
+        if event.y < self.HEADER_H:
+            key = self._column_at(event.x + self.x_offset)
+            if key:
+                self._on_sort(key)
+            return
+        row_index = int((event.y + self.y_offset - self.HEADER_H) // self.ROW_H)
+        if 0 <= row_index < len(self.rows):
+            self._select(row_index)
+
+    def _on_wheel(self, event):
+        if event.state & 0x0001:  # Shift held: scroll horizontally.
+            self.x_offset -= (1 if event.delta > 0 else -1) * 40
+        else:
+            self.y_offset -= (1 if event.delta > 0 else -1) * self.ROW_H
+        self._clamp_offsets()
+        self._update_scrollbars()
+        self._redraw_table()
+
+    def _on_y_scrollbar(self, action, *args):
+        total = self._max_y_offset()
+        if action == "moveto":
+            self.y_offset = int(float(args[0]) * total)
+        elif action == "scroll":
+            amount = int(args[1])
+            if args[2] == "units":
+                self.y_offset += amount * self.ROW_H
+            else:
+                self.y_offset += amount * max(1, self.table_canvas.winfo_height())
+        self._clamp_offsets()
+        self._update_scrollbars()
+        self._redraw_table()
+
+    def _on_x_scrollbar(self, action, *args):
+        total = self._max_x_offset()
+        if action == "moveto":
+            self.x_offset = int(float(args[0]) * total)
+        elif action == "scroll":
+            amount = int(args[1])
+            if args[2] == "units":
+                self.x_offset += amount * 40
+            else:
+                self.x_offset += amount * max(1, self.table_canvas.winfo_width())
+        self._clamp_offsets()
+        self._update_scrollbars()
+        self._redraw_table()
+
+    def _max_y_offset(self):
+        return max(0, self.HEADER_H + len(self.rows) * self.ROW_H
+                   - self.table_canvas.winfo_height())
+
+    def _max_x_offset(self):
+        return max(0, self._content_width - self.table_canvas.winfo_width())
+
+    def _clamp_offsets(self):
+        self.y_offset = max(0, min(self.y_offset, self._max_y_offset()))
+        self.x_offset = max(0, min(self.x_offset, self._max_x_offset()))
+
+    def _update_scrollbars(self):
+        total_y = self._max_y_offset()
+        total_x = self._max_x_offset()
+        if total_y <= 0:
+            self.y_scroll.set(0.0, 1.0)
+        else:
+            first = self.y_offset / total_y
+            last = (self.y_offset + self.table_canvas.winfo_height()) / total_y
+            self.y_scroll.set(first, min(1.0, last))
+        if total_x <= 0:
+            self.x_scroll.set(0.0, 1.0)
+        else:
+            first = self.x_offset / total_x
+            last = (self.x_offset + self.table_canvas.winfo_width()) / total_x
+            self.x_scroll.set(first, min(1.0, last))
 
     def _on_right_click(self, event):
-        row_id = self.tree.identify_row(event.y)
-        if not row_id:
+        if not self.rows or event.y < self.HEADER_H:
             return
-        self.tree.selection_set(row_id)
-        self.tree.focus(row_id)
-        self._show_preview(self.rows[int(row_id)])
-        try:
-            self.context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.context_menu.grab_release()
+        row_index = int((event.y + self.y_offset - self.HEADER_H) // self.ROW_H)
+        if 0 <= row_index < len(self.rows):
+            self._select(row_index)
+            try:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.context_menu.grab_release()
 
     def _copy_name(self):
-        selection = self.tree.selection()
-        if not selection:
+        if self.selected < 0 or self.selected >= len(self.rows):
             return
-        name = self.rows[int(selection[0])]["name"]
+        name = self.rows[self.selected]["name"]
         self.root.clipboard_clear()
         self.root.clipboard_append(name)
         self.root.update()
