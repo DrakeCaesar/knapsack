@@ -6,7 +6,6 @@ import json
 import os
 import threading
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import ttk
 
 import engine_knapsack as ek
@@ -34,6 +33,10 @@ class OutfitTableApp(ttk.Frame):
 
     ROW_H = 24
     HEADER_H = 26
+    # Extra total horizontal padding added when auto-sizing column widths; it
+    # is split evenly on either side of the widest cell text. The same amount
+    # is used to inset the text when drawing it, so the text fills the cell.
+    CELL_PADDING = 16
 
     def __init__(self, master):
         super().__init__(master)
@@ -75,7 +78,12 @@ class OutfitTableApp(ttk.Frame):
         self._content_width = 0
         self._scales = {}
         self._decimals = {}
-        self._measure_font = tkfont.Font()
+        # Hidden canvas used to measure the exact rendered text width. A plain
+        # tkfont.Font() does not match the canvas default font, which made the
+        # auto-sized columns wider than the text they contain.
+        self._measure_canvas = tk.Canvas(self, width=1, height=1,
+                                         highlightthickness=0)
+        self._measure_cache = {}
         self._redraw_scheduled = False
         self._configure_after_id = None
 
@@ -378,34 +386,44 @@ class OutfitTableApp(ttk.Frame):
     def _compute_column_widths(self):
         """Auto-size every column to its widest text.
 
-        Widths are derived purely from content: the longest formatted cell in
-        each column, including the header text, so no width is ever declared.
-        The total content width is the sum of all column widths.
+        Widths are derived purely from content: the exact rendered width of the
+        longest formatted cell in each column, including the header text, so no
+        width is ever declared. The total content width is the sum of all
+        column widths.
         """
-        font = self._measure_font
         decimals = self._decimals
-        cache = {}
-
-        def measure(text):
-            width = cache.get(text)
-            if width is None:
-                width = font.measure(text)
-                cache[text] = width
-            return width
 
         x = 0
         layout = []
         for header, key, anchor in self.COLUMNS:
-            longest = measure(header)
+            longest = self._measure_text(header)
             for row in self.rows:
                 text = self._format_cell(row, key, decimals.get(key, 0))
-                longest = max(longest, measure(text))
-            # Breathing room on either side of the cell text.
-            width = longest + 16
+                longest = max(longest, self._measure_text(text))
+            # Same padding on both sides of the text; CELL_PADDING is the total
+            # added to the width, split evenly when the text is drawn.
+            width = longest + self.CELL_PADDING
             layout.append((key, x, width, anchor))
             x += width
         self._col_layout = layout
         self._content_width = x
+
+    def _measure_text(self, text):
+        """Return the exact rendered pixel width of ``text``.
+
+        Uses a hidden canvas with the same default font as the table, so the
+        width matches what is actually drawn (font.measure() does not).
+        """
+        width = self._measure_cache.get(text)
+        if width is not None:
+            return width
+        canvas = self._measure_canvas
+        item = canvas.create_text(0, 0, anchor="nw", text=text)
+        x1, _, x2, _ = canvas.bbox(item)
+        canvas.delete(item)
+        width = x2 - x1
+        self._measure_cache[text] = width
+        return width
 
     def _redraw_table(self):
         canvas = self.table_canvas
@@ -422,6 +440,10 @@ class OutfitTableApp(ttk.Frame):
         # formatted with enough decimal places to keep its values aligned.
         scales = self._scales
         decimals = self._decimals
+
+        # Half the column padding goes on each side of the text, matching the
+        # width calculation so the text fills the cell exactly.
+        inset = self.CELL_PADDING / 2.0
 
         first = max(0, int(self.y_offset // self.ROW_H))
         last = min(len(self.rows),
@@ -441,7 +463,7 @@ class OutfitTableApp(ttk.Frame):
                                              reverse=(key in self.reversed_keys))
                     canvas.create_rectangle(x0, y0, x1 + 1, y1,
                                             fill=color, outline="")
-                text_x = x1 - 6 if anchor == "e" else x0 + 6
+                text_x = x1 - inset if anchor == "e" else x0 + inset
                 text_fill = "#ffffff" if selected else FG
                 canvas.create_text(text_x, y0 + self.ROW_H // 2,
                                    anchor=anchor,
@@ -460,7 +482,7 @@ class OutfitTableApp(ttk.Frame):
                 continue
             canvas.create_rectangle(x0, 0, x1, self.HEADER_H,
                                     fill="#2d2d2d", outline="#111111")
-            text_x = x1 - 6 if anchor == "e" else x0 + 6
+            text_x = x1 - inset if anchor == "e" else x0 + inset
             canvas.create_text(text_x, self.HEADER_H // 2,
                                anchor=anchor, text=self._header_for(key),
                                fill=FG)
