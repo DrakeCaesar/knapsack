@@ -97,19 +97,57 @@ ENGINE_COLUMNS = [
 ]
 
 # Weapon comparison table columns: (header, row key, width, anchor).
+# Damage columns are per shot; rates (En/s, Ht/s, Fuel/s, Reload, DPS) are
+# normalized to a one-second firing cycle where applicable.
 WEAPON_COLUMNS = [
-    ("Name", "name", 200, "w"),
-    ("Faction", "faction", 110, "w"),
-    ("Cost", "cost", 90, "e"),
-    ("Mass", "mass", 70, "e"),
-    ("Space", "space", 70, "e"),
-    ("Shield", "shield_damage", 80, "e"),
-    ("Hull", "hull_damage", 80, "e"),
-    ("Range", "range", 90, "e"),
+    ("Name", "name", 190, "w"),
+    ("Faction", "faction", 100, "w"),
+    ("Mount", "mount", 90, "w"),
+    ("Type", "type", 90, "w"),
+    ("Cost", "cost", 85, "e"),
+    ("Mass", "mass", 65, "e"),
+    ("Space", "space", 65, "e"),
+    # Direct damage.
+    ("Shield", "shield_damage", 75, "e"),
+    ("Hull", "hull_damage", 70, "e"),
+    ("Disabl", "disabled_damage", 75, "e"),
+    ("Minabl", "minable_damage", 75, "e"),
+    ("Fuel Dmg", "fuel_damage", 80, "e"),
+    ("Heat Dmg", "heat_damage", 80, "e"),
+    ("En Dmg", "energy_damage", 75, "e"),
+    # Status damage.
+    ("Ion", "ion_damage", 60, "e"),
+    ("Scrambl", "scrambling_damage", 80, "e"),
+    ("Disrupt", "disruption_damage", 80, "e"),
+    ("Slow", "slowing_damage", 60, "e"),
+    ("Dischrg", "discharge_damage", 80, "e"),
+    ("Corro", "corrosion_damage", 70, "e"),
+    ("Leak", "leak_damage", 60, "e"),
+    ("Burn", "burn_damage", 60, "e"),
+    # Other damage modifiers.
+    ("Pierce", "piercing", 70, "e"),
+    ("HitForce", "hit_force", 80, "e"),
+    ("Missile", "missile_strength", 75, "e"),
+    ("BlastRad", "blast_radius", 80, "e"),
+    # Projectile mechanics.
+    ("Range", "range", 80, "e"),
     ("Reload", "reload", 70, "e"),
+    ("Burst", "burst_count", 60, "e"),
+    ("BurstRel", "burst_reload", 80, "e"),
     ("DPS", "dps", 80, "e"),
-    ("Energy/s", "energy", 90, "e"),
-    ("Heat/s", "heat", 80, "e"),
+    ("Velocity", "velocity", 80, "e"),
+    ("Life", "lifetime", 60, "e"),
+    ("Turn", "turn", 60, "e"),
+    ("Inacc", "inaccuracy", 65, "e"),
+    ("Drag", "drag", 60, "e"),
+    ("Accel", "acceleration", 65, "e"),
+    ("Track", "tracking", 65, "e"),
+    ("T-Turn", "turret_turn", 70, "e"),
+    # Firing costs, per second.
+    ("En/s", "energy", 70, "e"),
+    ("Ht/s", "heat", 70, "e"),
+    ("Fuel/s", "fuel", 70, "e"),
+    ("Force/s", "firing_force", 75, "e"),
 ]
 
 
@@ -467,17 +505,43 @@ def build_engine_rows(outfits):
     return rows
 
 
-def build_weapon_rows(outfits, category=None, series=None):
-    """Return one row per weapon outfit matching the given category or series."""
+def weapon_type(weapon):
+    """Classify a weapon block into a display type for grouping.
+
+    Priority order: point-defense, tractor beams, seeking weapons, then
+    instant-hit beams, and finally ordinary projectile guns.
+    """
+    if number(weapon, "anti-missile") > 0:
+        return "Anti-Missile"
+    if number(weapon, "tractor beam") > 0:
+        return "Tractor Beam"
+    for key in ("homing", "tracking", "optical tracking",
+                "infrared tracking", "radar tracking"):
+        if key in weapon:
+            return "Missile"
+    if number(weapon, "lifetime") == 1.0:
+        return "Beam"
+    return "Projectile"
+
+
+def build_weapon_rows(outfits, types=None):
+    """Return one row per player weapon outfit of the given type(s).
+
+    Every stat available on a weapon block is exposed as a column, so weapons
+    with very different groups of statistics can still be compared side by
+    side. ``types`` is a set of weapon_type() results, or None for all.
+    """
     rows = []
     for outfit in outfits:
         attrs = outfit["attrs"]
-        if category is not None and attrs.get("category") != category:
-            continue
-        if series is not None and attrs.get("series") != series:
+        category = attrs.get("category", "")
+        if category not in ("Guns", "Turrets", "Secondary Weapons"):
             continue
         weapon = attrs.get("weapon", {})
         if not weapon:
+            continue
+        wtype = weapon_type(weapon)
+        if types is not None and wtype not in types:
             continue
 
         cost = number(attrs, "cost")
@@ -486,31 +550,98 @@ def build_weapon_rows(outfits, category=None, series=None):
 
         shield = number(weapon, "shield damage")
         hull = number(weapon, "hull damage")
+        disabled = number(weapon, "disabled damage") or hull
+        minable = number(weapon, "minable damage") or hull
+        fuel_dmg = number(weapon, "fuel damage")
+        heat_dmg = number(weapon, "heat damage")
+        energy_dmg = number(weapon, "energy damage")
+        ion = number(weapon, "ion damage")
+        scrambling = number(weapon, "scrambling damage")
+        disruption = number(weapon, "disruption damage")
+        slowing = number(weapon, "slowing damage")
+        discharge = number(weapon, "discharge damage")
+        corrosion = number(weapon, "corrosion damage")
+        leak = number(weapon, "leak damage")
+        burn = number(weapon, "burn damage")
+        piercing = number(weapon, "piercing")
+        hit_force = number(weapon, "hit force")
+        missile_strength = number(weapon, "missile strength")
+        blast_radius = number(weapon, "blast radius")
+
         velocity = number(weapon, "velocity")
+        if velocity == 0:
+            velocity = number(weapon, "velocity override")
         lifetime = number(weapon, "lifetime")
         rng = number(weapon, "range")
+        if rng <= 0:
+            rng = number(weapon, "range override")
         if rng <= 0 and velocity > 0 and lifetime > 0:
             rng = velocity * lifetime
-        burst = max(1, int(number(weapon, "burst count") or 1))
+        burst_count = max(1, int(number(weapon, "burst count") or 1))
         reload = max(0.001, number(weapon, "reload") / 60.0)
-        dps = (shield + hull) * burst / reload
-        energy = number(weapon, "firing energy") * burst / reload
-        heat = number(weapon, "firing heat") * burst / reload
+        raw_burst_reload = number(weapon, "burst reload")
+        burst_reload = raw_burst_reload / 60.0 if raw_burst_reload > 0 else reload
+        turn = number(weapon, "turn")
+        inaccuracy = number(weapon, "inaccuracy")
+        drag = number(weapon, "drag")
+        acceleration = number(weapon, "acceleration")
+        tracking = max(number(weapon, "tracking"),
+                       number(weapon, "optical tracking"),
+                       number(weapon, "infrared tracking"),
+                       number(weapon, "radar tracking"))
+        turret_turn = number(weapon, "turret turn")
+
+        dps = (shield + hull) * burst_count / reload
+        energy = number(weapon, "firing energy") * burst_count / reload
+        heat = number(weapon, "firing heat") * burst_count / reload
+        fuel = number(weapon, "firing fuel") * burst_count / reload
+        firing_force = number(weapon, "firing force") * burst_count / reload
         thumbnail = attrs.get("thumbnail", "")
 
         rows.append({
             "name": outfit["name"],
             "faction": outfit["faction"],
+            "mount": category,
+            "type": wtype,
             "cost": cost,
             "mass": mass,
             "space": space,
             "shield_damage": shield,
             "hull_damage": hull,
+            "disabled_damage": disabled,
+            "minable_damage": minable,
+            "fuel_damage": fuel_dmg,
+            "heat_damage": heat_dmg,
+            "energy_damage": energy_dmg,
+            "ion_damage": ion,
+            "scrambling_damage": scrambling,
+            "disruption_damage": disruption,
+            "slowing_damage": slowing,
+            "discharge_damage": discharge,
+            "corrosion_damage": corrosion,
+            "leak_damage": leak,
+            "burn_damage": burn,
+            "piercing": piercing,
+            "hit_force": hit_force,
+            "missile_strength": missile_strength,
+            "blast_radius": blast_radius,
             "range": rng,
             "reload": reload,
+            "burst_count": burst_count,
+            "burst_reload": burst_reload,
             "dps": dps,
+            "velocity": velocity,
+            "lifetime": lifetime,
+            "turn": turn,
+            "inaccuracy": inaccuracy,
+            "drag": drag,
+            "acceleration": acceleration,
+            "tracking": tracking,
+            "turret_turn": turret_turn,
             "energy": energy,
             "heat": heat,
+            "fuel": fuel,
+            "firing_force": firing_force,
             "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
         })
 
@@ -1193,6 +1324,7 @@ class OutfitTableApp(ttk.Frame):
     BUILDER = None
     REVERSED_KEYS = set()
     RATIO_KEYS = set()
+    THREE_DECIMAL_KEYS = {"energy", "heat", "reload", "dps"}
     NOUN = "outfit"
     CONFIG_FILENAME = ".endless_sky_outfits.json"
     DEFAULT_SORT_KEY = "name"
@@ -1536,7 +1668,7 @@ class OutfitTableApp(ttk.Frame):
             values = [row[key] for row in self.rows]
             if not values:
                 continue
-            if key in self.RATIO_KEYS or key in ("energy", "heat", "reload", "dps"):
+            if key in self.RATIO_KEYS or key in self.THREE_DECIMAL_KEYS:
                 self._decimals[key] = 3
             else:
                 self._decimals[key] = max(self._decimal_places(value)
@@ -2042,36 +2174,50 @@ class ShipBunksApp(OutfitTableApp):
 
 
 class WeaponCategoryTable(OutfitTableApp):
-    """Heatmap table comparing the weapons of a single category."""
+    """Heatmap table comparing the weapons of a single weapon type."""
 
     COLUMNS = WEAPON_COLUMNS
-    TEXT_KEYS = {"name", "faction"}
-    REVERSED_KEYS = {"shield_damage", "hull_damage", "range", "dps"}
+    TEXT_KEYS = {"name", "faction", "mount", "type"}
+    REVERSED_KEYS = {"shield_damage", "hull_damage", "disabled_damage",
+                     "minable_damage", "fuel_damage", "heat_damage",
+                     "energy_damage", "ion_damage", "scrambling_damage",
+                     "disruption_damage", "slowing_damage", "discharge_damage",
+                     "corrosion_damage", "leak_damage", "burn_damage",
+                     "piercing", "hit_force", "missile_strength",
+                     "blast_radius", "range", "burst_count", "dps",
+                     "velocity", "lifetime", "turn", "tracking", "turret_turn"}
     RATIO_KEYS = set()
+    THREE_DECIMAL_KEYS = {"energy", "heat", "reload", "dps",
+                          "fuel", "burst_reload", "firing_force"}
     NOUN = "weapon"
     HAS_FACTIONS = True
     HAS_SHOW_ALL = False
-    WEAPON_CATEGORY = None
-    WEAPON_SERIES = None
+    WEAPON_TYPES = None
 
     def _load_worker(self):
         try:
             outfits = parse_weapon_outfits(self.data_dir)
-            rows = build_weapon_rows(outfits, self.WEAPON_CATEGORY,
-                                     self.WEAPON_SERIES)
+            rows = build_weapon_rows(outfits, self.WEAPON_TYPES)
             self.root.after(0, self._on_data_loaded, outfits, rows)
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
             self.root.after(0, self._load_error, str(exc))
 
 
 class WeaponsApp(ttk.Frame):
-    """Tab with a sub-tab per weapon type, comparing weapon stats."""
+    """Tab with a sub-tab per weapon type, comparing all of their stats.
 
-    CATEGORIES = [
-        ("Guns", "Guns", None),
-        ("Turrets", "Turrets", None),
-        ("Anti-Missile", None, "Anti-Missile"),
-        ("Secondary Weapons", "Secondary Weapons", None),
+    Weapons are grouped by how they behave (beams, projectiles, missiles, ...)
+    instead of by mount, so weapons that share a group of statistics are
+    compared together. The "Mount" column still shows whether each weapon is a
+    gun, turret, or secondary weapon.
+    """
+
+    TYPES = [
+        ("Beams", ("Beam",)),
+        ("Projectiles", ("Projectile",)),
+        ("Missiles", ("Missile",)),
+        ("Anti-Missile", ("Anti-Missile",)),
+        ("Tractor Beams", ("Tractor Beam",)),
     ]
 
     def __init__(self, master):
@@ -2084,13 +2230,12 @@ class WeaponsApp(ttk.Frame):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        for label, category, series in self.CATEGORIES:
+        for label, types in self.TYPES:
             tab = ttk.Frame(notebook)
             slug = label.lower().replace(" ", "_")
             cls = type("Weapons" + label.replace(" ", ""),
                        (WeaponCategoryTable,),
-                       {"WEAPON_CATEGORY": category,
-                        "WEAPON_SERIES": series,
+                       {"WEAPON_TYPES": types,
                         "CONFIG_FILENAME": ".endless_sky_weapons_" + slug + ".json"})
             app = cls(tab)
             app.pack(fill=tk.BOTH, expand=True)
