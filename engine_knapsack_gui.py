@@ -5,7 +5,7 @@ Run from the repository root (or anywhere) with:
 
     python knapsack/engine_knapsack_gui.py
 
-The window has three tabs:
+The window has four tabs:
 
   * "Engine Picker" - lists every non-dominated (thrust, turn) combination,
     each with two small bars: blue for forward thrust and orange for turning.
@@ -16,6 +16,8 @@ The window has three tabs:
 
   * "Generators" - compares the stats of every generator outfit, showing the
     outfit thumbnail next to the table.
+
+  * "Engines" - compares the stats of every engine outfit.
 """
 
 import json
@@ -75,6 +77,21 @@ GENERATOR_COLUMNS = [
     ("Heat/s", "heat", 70, "e"),
     ("Energy/Space", "energy_per_space", 100, "e"),
     ("Energy/Heat", "energy_per_heat", 100, "e"),
+]
+
+# Engine comparison table columns: (header, row key, width, anchor).
+ENGINE_COLUMNS = [
+    ("Name", "name", 190, "w"),
+    ("Faction", "faction", 110, "w"),
+    ("Cost", "cost", 90, "e"),
+    ("Mass", "mass", 70, "e"),
+    ("Space", "space", 70, "e"),
+    ("Thrust", "thrust", 80, "e"),
+    ("Turn", "turn", 80, "e"),
+    ("Energy/s", "energy", 90, "e"),
+    ("Heat/s", "heat", 70, "e"),
+    ("Thrust/Space", "thrust_per_space", 100, "e"),
+    ("Turn/Space", "turn_per_space", 100, "e"),
 ]
 
 
@@ -343,6 +360,46 @@ def build_generator_rows(outfits):
         })
 
     rows.sort(key=lambda row: (-row["energy"], row["name"].lower()))
+    return rows
+
+
+def build_engine_rows(outfits):
+    """Return one row per engine outfit with comparable stats."""
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("series") != "Engines":
+            continue
+
+        thrust = number(attrs, "thrust")
+        turn = number(attrs, "turn")
+        if thrust == 0.0 and turn == 0.0:
+            continue
+
+        cost = number(attrs, "cost")
+        mass = number(attrs, "mass")
+        space = max(0.0, -number(attrs, "outfit space"),
+                    -number(attrs, "engine capacity"))
+        energy = number(attrs, "thrusting energy") + number(attrs, "turning energy")
+        heat = number(attrs, "thrusting heat") + number(attrs, "turning heat")
+        thumbnail = attrs.get("thumbnail", "")
+
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "cost": cost,
+            "mass": mass,
+            "space": space,
+            "thrust": thrust,
+            "turn": turn,
+            "energy": energy,
+            "heat": heat,
+            "thrust_per_space": thrust / space if space > 0 else 0.0,
+            "turn_per_space": turn / space if space > 0 else 0.0,
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (-row["thrust"], row["name"].lower()))
     return rows
 
 
@@ -1416,8 +1473,17 @@ class ShipBunksApp(ttk.Frame):
         self.status_var.set("{} / {} ships loaded".format(loaded, total))
 
 
-class GeneratorsApp(ttk.Frame):
-    """Tab that compares the stats of every generator outfit."""
+class OutfitTableApp(ttk.Frame):
+    """Reusable heatmap table for comparing outfit stats."""
+
+    COLUMNS = []
+    BUILDER = None
+    REVERSED_KEYS = set()
+    RATIO_KEYS = set()
+    NOUN = "outfit"
+    CONFIG_FILENAME = ".endless_sky_outfits.json"
+    DEFAULT_SORT_KEY = "name"
+    DEFAULT_SORT_REVERSE = False
 
     ROW_H = 24
     HEADER_H = 26
@@ -1427,7 +1493,7 @@ class GeneratorsApp(ttk.Frame):
         self.root = master.winfo_toplevel()
 
         self.config_path = os.path.join(os.path.expanduser("~"),
-                                        ".endless_sky_generators.json")
+                                        self.CONFIG_FILENAME)
         self._load_config()
 
         self.data_dir = DATA_DIR
@@ -1442,15 +1508,15 @@ class GeneratorsApp(ttk.Frame):
         self._photo_cache = {}
         self._current_photo = None
         self._current_row = None
-        self._sort_key = "energy"
-        self._sort_reverse = True
+        self._sort_key = self.DEFAULT_SORT_KEY
+        self._sort_reverse = self.DEFAULT_SORT_REVERSE
         self.preview_size = 240
         self._preload_paths = []
         self._preload_index = 0
         self._preload_attempted = set()
-        self.numeric_keys = [key for _, key, _, _ in GENERATOR_COLUMNS
+        self.numeric_keys = [key for _, key, _, _ in self.COLUMNS
                              if key not in ("name", "faction")]
-        self.reversed_keys = {"energy", "energy_per_space", "energy_per_heat"}
+        self.reversed_keys = self.REVERSED_KEYS
         self.selected = -1
         self.y_offset = 0
         self.x_offset = 0
@@ -1496,7 +1562,7 @@ class GeneratorsApp(ttk.Frame):
         paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        # Left: canvas heatmap table of generators.
+        # Left: canvas heatmap table of outfits.
         table_frame = ttk.Frame(paned)
         self.table_canvas = tk.Canvas(table_frame, background=ENTRY_BG,
                                       highlightthickness=0)
@@ -1513,7 +1579,7 @@ class GeneratorsApp(ttk.Frame):
         paned.add(table_frame, weight=3)
 
         x = 0
-        for header, key, width, anchor in GENERATOR_COLUMNS:
+        for header, key, width, anchor in self.COLUMNS:
             self._col_layout.append((key, x, width, anchor))
             x += width
         self._content_width = x
@@ -1563,7 +1629,7 @@ class GeneratorsApp(ttk.Frame):
     def _load_worker(self):
         try:
             outfits = ek.parse_outfits(self.data_dir)
-            rows = build_generator_rows(outfits)
+            rows = type(self).BUILDER(outfits)
             self.root.after(0, self._load_done, outfits, rows)
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
             self.root.after(0, self._load_error, str(exc))
@@ -1710,7 +1776,7 @@ class GeneratorsApp(ttk.Frame):
         return self._heat_color(t)
 
     def _header_for(self, key):
-        for header, k, _, _ in GENERATOR_COLUMNS:
+        for header, k, _, _ in self.COLUMNS:
             if k == key:
                 return header
         return key
@@ -1732,6 +1798,18 @@ class GeneratorsApp(ttk.Frame):
             return value
         return format(value, ",.{0}f".format(decimals))
 
+    def _column_decimals(self):
+        """Return the decimal places to use for each numeric column."""
+        decimals = {}
+        for key in self.numeric_keys:
+            if key in self.RATIO_KEYS or key in ("energy", "heat"):
+                decimals[key] = 3
+            else:
+                values = [row[key] for row in self.rows]
+                decimals[key] = max(self._decimal_places(value)
+                                    for value in values)
+        return decimals
+
     def _redraw_table(self):
         canvas = self.table_canvas
         canvas.delete("all")
@@ -1746,15 +1824,10 @@ class GeneratorsApp(ttk.Frame):
         # Each numeric column is scaled independently from green to red, and
         # formatted with enough decimal places to keep its values aligned.
         scales = {}
-        decimals = {}
+        decimals = self._column_decimals()
         for key in self.numeric_keys:
             values = [row[key] for row in self.rows]
             scales[key] = (min(values), max(values))
-            if key in ("energy_per_space", "energy_per_heat"):
-                decimals[key] = 3
-            else:
-                decimals[key] = max(self._decimal_places(value)
-                                    for value in values)
 
         # Header row stays fixed while the body scrolls vertically.
         for key, x, col_w, anchor in self._col_layout:
@@ -1903,16 +1976,17 @@ class GeneratorsApp(ttk.Frame):
         self._current_row = row
         self.name_var.set(row["name"])
 
-        lines = [
-            "Faction: {}".format(row["faction"]),
-            "Cost: {}".format(format_number(row["cost"])),
-            "Mass: {}".format(format_number(row["mass"])),
-            "Space: {}".format(format_number(row["space"])),
-            "Energy/s: {}".format(format_number(row["energy"])),
-            "Heat/s: {}".format(format_number(row["heat"])),
-            "Energy/Space: {}".format(format_ratio(row["energy_per_space"])),
-            "Energy/Heat: {}".format(format_ratio(row["energy_per_heat"])),
-        ]
+        decimals = self._column_decimals()
+        lines = []
+        for header, key, _, _ in self.COLUMNS:
+            if key == "name":
+                continue
+            value = row.get(key, "")
+            if isinstance(value, str):
+                lines.append("{}: {}".format(header, value))
+            else:
+                lines.append("{}: {}".format(
+                    header, self._format_cell(row, key, decimals.get(key, 0))))
         self.stats_var.set("\n".join(lines))
         self._redraw_preview()
 
@@ -1922,7 +1996,7 @@ class GeneratorsApp(ttk.Frame):
         if self._current_row is None:
             return
 
-        path = self._generator_image_path(self._current_row)
+        path = self._outfit_image_path(self._current_row)
         if path is None:
             canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
             return
@@ -1937,7 +2011,7 @@ class GeneratorsApp(ttk.Frame):
                             canvas.winfo_height() // 2,
                             image=photo, anchor="center")
 
-    def _generator_image_path(self, row):
+    def _outfit_image_path(self, row):
         thumbnail = row.get("thumbnail", "")
         if not thumbnail:
             return None
@@ -1965,11 +2039,11 @@ class GeneratorsApp(ttk.Frame):
         return image
 
     def _start_preload(self):
-        """Queue every generator thumbnail for loading once, in the background."""
+        """Queue every outfit thumbnail for loading once, in the background."""
         paths = []
         seen = set()
         for row in self.rows:
-            path = self._generator_image_path(row)
+            path = self._outfit_image_path(row)
             if path and path not in seen:
                 seen.add(path)
                 paths.append(path)
@@ -1998,15 +2072,42 @@ class GeneratorsApp(ttk.Frame):
 
     def _update_preload_status(self):
         total = len(self.rows)
+        noun = self.NOUN
         if total == 0:
-            self.status_var.set("No generators.")
+            self.status_var.set("No {}s.".format(noun))
             return
         loaded = 0
         for row in self.rows:
-            path = self._generator_image_path(row)
+            path = self._outfit_image_path(row)
             if path is None or path in self._photo_cache:
                 loaded += 1
-        self.status_var.set("{} / {} generators loaded".format(loaded, total))
+        self.status_var.set("{} / {} {}s loaded".format(loaded, total, noun))
+
+
+class GeneratorsApp(OutfitTableApp):
+    """Tab that compares the stats of every generator outfit."""
+
+    COLUMNS = GENERATOR_COLUMNS
+    BUILDER = build_generator_rows
+    REVERSED_KEYS = {"energy", "energy_per_space", "energy_per_heat"}
+    RATIO_KEYS = {"energy_per_space", "energy_per_heat"}
+    NOUN = "generator"
+    CONFIG_FILENAME = ".endless_sky_generators.json"
+    DEFAULT_SORT_KEY = "energy"
+    DEFAULT_SORT_REVERSE = True
+
+
+class EnginesApp(OutfitTableApp):
+    """Tab that compares the stats of every engine outfit."""
+
+    COLUMNS = ENGINE_COLUMNS
+    BUILDER = build_engine_rows
+    REVERSED_KEYS = {"thrust", "turn", "thrust_per_space", "turn_per_space"}
+    RATIO_KEYS = {"thrust_per_space", "turn_per_space"}
+    NOUN = "engine"
+    CONFIG_FILENAME = ".endless_sky_engines.json"
+    DEFAULT_SORT_KEY = "thrust"
+    DEFAULT_SORT_REVERSE = True
 
 
 def main():
@@ -2033,6 +2134,11 @@ def main():
     generators_app = GeneratorsApp(generators_tab)
     generators_app.pack(fill=tk.BOTH, expand=True)
     notebook.add(generators_tab, text="Generators")
+
+    engines_tab = ttk.Frame(notebook)
+    engines_app = EnginesApp(engines_tab)
+    engines_app.pack(fill=tk.BOTH, expand=True)
+    notebook.add(engines_tab, text="Engines")
 
     def on_close():
         generators_app._on_close()
