@@ -1,0 +1,607 @@
+"""Engine Picker: solve the engine knapsack frontier and browse results."""
+
+import json
+import os
+import threading
+import tkinter as tk
+import tkinter.font as tkfont
+from tkinter import ttk
+
+import engine_knapsack as ek
+
+from .paths import DATA_DIR, IMAGES_DIR
+from .theme import BG, FG, ENTRY_BG, SELECT_BG
+
+
+class EnginePickerApp(ttk.Frame):
+    ROW_H = 30
+    ENGINE_ROW_H = 168
+    ENGINE_HEADER_H = 26
+    THRUST_COLOR = "#4a90d9"
+    TURN_COLOR = "#e08a4a"
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.root = master.winfo_toplevel()
+
+        self.config_path = os.path.join(os.path.expanduser("~"),
+                                        ".endless_sky_engine_picker.json")
+        self._save_after_id = None
+        self._load_config()
+
+        self.data_dir = DATA_DIR
+        self.outfits = None
+        self.engines = []
+        self.capacity = 0
+        self.results = []
+        self.selected = -1
+        self.scroll = 0
+
+        self.images_dir = IMAGES_DIR
+        self._photo_cache = {}
+        self.engine_rows = []
+        self.engine_scroll = 0
+
+        self.factions = []
+        self.faction_vars = {}
+        self._debounce_id = None
+        self._computing = False
+        self._pending = False
+
+        self.bg = BG
+        self.fg = FG
+        self.entry_bg = ENTRY_BG
+        self.select_bg = SELECT_BG
+        self.mono_font = self._pick_mono_font()
+
+        self._build_controls()
+        self._build_faction_bar()
+        self._build_panels()
+
+        self._start_loading()
+
+    def _pick_mono_font(self):
+        """Return the Fira Code Nerd Font descriptor, or TkFixedFont."""
+        families = set(tkfont.families(self.root))
+        if "FiraCode Nerd Font" in families:
+            return ("FiraCode Nerd Font", 9)
+        if "Fira Code Nerd Font" in families:
+            return ("Fira Code Nerd Font", 9)
+        return "TkFixedFont"
+
+    # --------------------------------------------------------- persistence
+    def _load_config(self):
+        self.config = {}
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as handle:
+                self.config = json.load(handle)
+            geometry = self.config.get("geometry")
+            if geometry:
+                try:
+                    self.root.geometry(geometry)
+                except tk.TclError:
+                    pass
+        except (OSError, ValueError):
+            self.config = {}
+
+    def _on_configure(self, event):
+        if self.root.state() != "normal":
+            return
+        if not self.faction_vars:
+            return
+        if self._save_after_id is not None:
+            self.root.after_cancel(self._save_after_id)
+        self._save_after_id = self.root.after(500, self._save_config)
+
+    def _save_config(self):
+        self._save_after_id = None
+        try:
+            capacity = int(self.capacity_var.get())
+        except (ValueError, tk.TclError):
+            capacity = 180
+
+        data = {
+            "geometry": self.root.geometry(),
+            "capacity": capacity,
+        }
+        if self.faction_vars:
+            data["factions"] = [name for name, var in self.faction_vars.items()
+                                if var.get()]
+        elif "factions" in self.config:
+            data["factions"] = self.config["factions"]
+
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+        except OSError:
+            pass
+
+    def _on_close(self):
+        self._save_config()
+        self.root.destroy()
+
+    # ------------------------------------------------------------------ UI
+    def _build_controls(self):
+        bar = ttk.Frame(self, padding=8)
+        bar.pack(side=tk.TOP, fill=tk.X)
+
+        ttk.Label(bar, text="Engine capacity:").pack(side=tk.LEFT)
+        self.capacity_var = tk.StringVar(value=str(self.config.get("capacity", 180)))
+        ttk.Entry(bar, textvariable=self.capacity_var, width=6).pack(
+            side=tk.LEFT, padx=(4, 12))
+
+        self.compute_btn = ttk.Button(bar, text="Compute", command=self.compute)
+        self.compute_btn.pack(side=tk.LEFT, padx=12)
+        self.compute_btn.config(state=tk.DISABLED)
+
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
+
+    def _build_faction_bar(self):
+        self.checkbox_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
+        self.checkbox_frame.pack(side=tk.TOP, fill=tk.X)
+
+    def _build_panels(self):
+        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # Left: canvas list of results, each row with thrust/turn bars.
+        left = ttk.Frame(paned)
+        self.canvas = tk.Canvas(left, width=340, background=self.bg,
+                                highlightthickness=1, highlightbackground="#333333")
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.scrollbar = ttk.Scrollbar(left, orient=tk.VERTICAL,
+                                       command=self._on_scrollbar)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.bind("<Button-1>", self._on_click)
+        self.canvas.bind("<MouseWheel>", self._on_wheel)
+        self.canvas.bind("<Configure>", lambda e: self.redraw())
+        paned.add(left, weight=1)
+
+        # Right: summary + engine list with thumbnails for the selected result.
+        right = ttk.Frame(paned)
+        self.summary_var = tk.StringVar(value="Select a result.")
+        ttk.Label(right, textvariable=self.summary_var, padding=6).pack(
+            side=tk.TOP, fill=tk.X)
+
+        self.engine_canvas = tk.Canvas(right, background=self.bg,
+                                       highlightthickness=0)
+        self.engine_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
+                                padx=(6, 0), pady=6)
+        engine_scroll = ttk.Scrollbar(right, orient=tk.VERTICAL,
+                                      command=self._on_engine_scrollbar)
+        engine_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=6)
+        self.engine_scrollbar = engine_scroll
+
+        self.engine_canvas.bind("<MouseWheel>", self._on_engine_wheel)
+        self.engine_canvas.bind("<Configure>", lambda e: self.redraw_engines())
+        paned.add(right, weight=2)
+
+    # -------------------------------------------------------------- actions
+    def compute(self):
+        if self._computing:
+            self._pending = True
+            return
+        try:
+            capacity = int(self.capacity_var.get())
+        except ValueError:
+            self.status_var.set("Capacity must be an integer.")
+            return
+
+        capacity = max(0, capacity)
+        filters = self._current_filters()
+
+        self._computing = True
+        self._pending = False
+        self.status_var.set("Computing...")
+        self.compute_btn.config(state=tk.DISABLED)
+        threading.Thread(target=self._compute_worker,
+                         args=(capacity, filters), daemon=True).start()
+
+    def _current_filters(self):
+        if not self.factions:
+            return []
+        checked = [name for name, var in self.faction_vars.items() if var.get()]
+        if not checked:
+            # A token that matches no faction name, yielding an empty result.
+            return ["\u0000"]
+        if len(checked) == len(self.factions):
+            return []
+        return checked
+
+    def _start_loading(self):
+        self.status_var.set("Loading outfits...")
+        threading.Thread(target=self._load_worker, daemon=True).start()
+
+    def _load_worker(self):
+        try:
+            outfits = ek.parse_outfits(self.data_dir)
+            engines = ek.build_engines(outfits, [])
+            factions = sorted({engine["faction"] for engine in engines})
+            self.root.after(0, self._load_done, outfits, factions)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._compute_error, str(exc))
+
+    def _load_done(self, outfits, factions):
+        self.outfits = outfits
+        self._build_faction_checkboxes(factions)
+        self.compute_btn.config(state=tk.NORMAL)
+        self.status_var.set("")
+        self.compute()
+
+    def _build_faction_checkboxes(self, factions):
+        for child in self.checkbox_frame.winfo_children():
+            child.destroy()
+
+        self.factions = factions
+        self.faction_vars = {}
+
+        if "factions" in self.config:
+            saved = set(self.config["factions"])
+            all_checked = False
+        else:
+            saved = set()
+            all_checked = True
+
+        columns = 6
+        for index, name in enumerate(factions):
+            var = tk.BooleanVar(value=all_checked or name in saved)
+            var.trace_add("write", self._on_faction_toggled)
+            self.faction_vars[name] = var
+            check = ttk.Checkbutton(self.checkbox_frame, text=name, variable=var)
+            check.grid(row=index // columns, column=index % columns,
+                       sticky="w", padx=2, pady=1)
+
+    def _on_faction_toggled(self, *args):
+        self._save_config()
+        self._schedule_compute()
+
+    def _schedule_compute(self):
+        if self._debounce_id is not None:
+            self.root.after_cancel(self._debounce_id)
+        self._debounce_id = self.root.after(200, self._run_compute)
+
+    def _run_compute(self):
+        self._debounce_id = None
+        self.compute()
+
+    def _compute_worker(self, capacity, filters):
+        try:
+            if self.outfits is None:
+                self.outfits = ek.parse_outfits(self.data_dir)
+            engines = ek.prune_engines(ek.build_engines(self.outfits, filters))
+            if not engines:
+                self.root.after(0, self._compute_done, [], [], capacity)
+                return
+            frontier = ek.compute_frontier(capacity, engines)
+            results = [{
+                "node": node,
+                "thrust": node.thrust,
+                "turn": node.turn,
+                "weight": node.weight,
+            } for node in frontier]
+            self.root.after(0, self._compute_done, results, engines, capacity)
+        except Exception as exc:  # pragma: no cover - surfaced in the UI.
+            self.root.after(0, self._compute_error, str(exc))
+
+    def _compute_done(self, results, engines, capacity):
+        self.results = results
+        self.engines = engines
+        self.capacity = capacity
+        self.selected = self._balanced_index(results) if results else -1
+        self.scroll = 0
+        self.compute_btn.config(state=tk.NORMAL)
+        if not results:
+            self.status_var.set("No matching engines found.")
+            self.engine_rows = []
+            self.redraw_engines()
+            self._update_engine_scrollbar()
+        else:
+            self.status_var.set("{} combinations.".format(len(results)))
+        self._scroll_to_selected()
+        self.redraw()
+        self._update_scrollbar()
+        if self.selected >= 0:
+            self._show_engines(self.selected)
+        self._save_config()
+
+        self._computing = False
+        if self._pending:
+            self._pending = False
+            self.compute()
+
+    def _compute_error(self, message):
+        self._computing = False
+        self.compute_btn.config(state=tk.NORMAL)
+        self.status_var.set("Error: {}".format(message))
+        if self._pending:
+            self._pending = False
+            self.compute()
+
+    def _balanced_index(self, results):
+        """Return the result whose thrust and turn are most balanced."""
+        if not results:
+            return -1
+        max_thrust = max(r["thrust"] for r in results) or 1.0
+        max_turn = max(r["turn"] for r in results) or 1.0
+        best = 0
+        best_score = None
+        for index, result in enumerate(results):
+            score = abs(result["thrust"] / max_thrust - result["turn"] / max_turn)
+            if best_score is None or score < best_score:
+                best_score = score
+                best = index
+        return best
+
+    # ------------------------------------------------------------- drawing
+    def redraw(self):
+        canvas = self.canvas
+        canvas.delete("all")
+        if not self.results:
+            canvas.create_text(10, 10, anchor="nw", text="No results.", fill=self.fg)
+            return
+
+        max_thrust = max(r["thrust"] for r in self.results) or 1.0
+        max_turn = max(r["turn"] for r in self.results) or 1.0
+
+        width = max(120, canvas.winfo_width())
+        bar_x = 76
+        bar_width = max(30, width - bar_x - 14)
+        y = 6 - self.scroll
+
+        for index, result in enumerate(self.results):
+            if y + self.ROW_H < 0:
+                y += self.ROW_H
+                continue
+            if y > canvas.winfo_height():
+                break
+
+            if index == self.selected:
+                canvas.create_rectangle(2, y, width - 2, y + self.ROW_H - 2,
+                                        fill=self.select_bg, outline="")
+
+            thrust_len = int(bar_width * result["thrust"] / max_thrust)
+            turn_len = int(bar_width * result["turn"] / max_turn)
+
+            canvas.create_text(6, y + 1, anchor="nw",
+                               text="T {:6.1f}".format(result["thrust"]),
+                               fill=self.fg, font=self.mono_font)
+            canvas.create_rectangle(bar_x, y + 4, bar_x + thrust_len, y + 10,
+                                    fill=self.THRUST_COLOR, outline="")
+
+            canvas.create_text(6, y + 15, anchor="nw",
+                               text="U {:6.1f}".format(result["turn"]),
+                               fill=self.fg, font=self.mono_font)
+            canvas.create_rectangle(bar_x, y + 18, bar_x + turn_len, y + 24,
+                                    fill=self.TURN_COLOR, outline="")
+
+            y += self.ROW_H
+
+    def _show_engines(self, index):
+        result = self.results[index]
+        counts = ek._recipe(result["node"], self.engines)
+
+        dual = []
+        thrusters = []
+        steering = []
+        for count, engine in counts.values():
+            entry = (count, engine, self._thumbnail(engine))
+            if engine["thrust"] > 0 and engine["turn"] > 0:
+                dual.append(entry)
+            elif engine["thrust"] > 0:
+                thrusters.append(entry)
+            else:
+                steering.append(entry)
+        dual.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["turn"]))
+        thrusters.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["weight"]))
+        steering.sort(key=lambda entry: (-entry[1]["turn"], -entry[1]["weight"]))
+
+        rows = []
+        if dual:
+            rows.append(("header", "Multi-use engines"))
+            rows.extend(("engine", *entry) for entry in dual)
+        if thrusters:
+            rows.append(("header", "Thrusters"))
+            rows.extend(("engine", *entry) for entry in thrusters)
+        if steering:
+            rows.append(("header", "Steering"))
+            rows.extend(("engine", *entry) for entry in steering)
+
+        self.engine_rows = rows
+        self.engine_scroll = 0
+
+        self.summary_var.set(
+            "Thrust {:.2f}   Turn {:.2f}   Used {}   Unused {}".format(
+                result["thrust"], result["turn"],
+                result["weight"], self.capacity - result["weight"]))
+        self.redraw_engines()
+        self._update_engine_scrollbar()
+
+    # ------------------------------------------------------ engine thumbnails
+    def _thumbnail(self, engine):
+        thumb = engine.get("thumbnail") or ""
+        if not thumb:
+            return None
+        path = os.path.join(self.images_dir, thumb + ".png")
+        if not os.path.exists(path):
+            return None
+        if path in self._photo_cache:
+            return self._photo_cache[path]
+
+        try:
+            image = tk.PhotoImage(file=path)
+        except tk.TclError:
+            return None
+        # Show the thumbnails at their native resolution so they stay crisp;
+        # only shrink extremely large images to keep the rows a sensible size.
+        # Never upscale, because PhotoImage.zoom() uses nearest-neighbor and
+        # would make the sprites look pixelated.
+        largest = max(image.width(), image.height())
+        if largest > 160:
+            factor = (largest + 159) // 160
+            image = image.subsample(factor, factor)
+        self._photo_cache[path] = image
+        return image
+
+    def redraw_engines(self):
+        canvas = self.engine_canvas
+        canvas.delete("all")
+        if not self.engine_rows:
+            canvas.create_text(10, 10, anchor="nw", text="Select a result.",
+                               fill=self.fg)
+            return
+
+        width = max(120, canvas.winfo_width())
+        y = 4 - self.engine_scroll
+        for row in self.engine_rows:
+            height = self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
+            if y + height < 0:
+                y += height
+                continue
+            if y > canvas.winfo_height():
+                break
+
+            if row[0] == "header":
+                canvas.create_text(8, y + 2, anchor="nw", text=row[1],
+                                   fill="#7fb2dd", font=self.mono_font)
+                canvas.create_line(8, y + 21, width - 8, y + 21, fill="#444444")
+                y += height
+                continue
+
+            _, count, engine, photo = row
+            center_y = y + self.ENGINE_ROW_H // 2
+            if photo is not None:
+                canvas.create_image(86, center_y, image=photo, anchor="center")
+            else:
+                canvas.create_rectangle(6, y + 4, 166, y + self.ENGINE_ROW_H - 4,
+                                        fill="#3a3a3a", outline="#555555")
+
+            line1 = "{}x {}  ({})".format(count, engine["name"], engine["faction"])
+            line2 = "weight {:>3}   thrust {:>7.2f}   turn {:>7.2f}".format(
+                engine["weight"], engine["thrust"], engine["turn"])
+            canvas.create_text(176, y + 66, anchor="nw", text=line1, fill=self.fg)
+            canvas.create_text(176, y + 88, anchor="nw", text=line2, fill="#b0b0b0")
+
+            y += height
+
+    def _on_engine_wheel(self, event):
+        if not self.engine_rows:
+            return
+        step = -1 if event.delta > 0 else 1
+        self.engine_scroll += step * 40
+        self._clamp_engine_scroll()
+        self.redraw_engines()
+        self._update_engine_scrollbar()
+
+    def _on_engine_scrollbar(self, action, *args):
+        if not self.engine_rows:
+            return
+        total = self._max_engine_scroll()
+        if action == "moveto":
+            self.engine_scroll = int(float(args[0]) * total)
+        elif action == "scroll":
+            amount = int(args[1])
+            if args[2] == "units":
+                self.engine_scroll += amount * 40
+            else:
+                self.engine_scroll += amount * max(1, self.engine_canvas.winfo_height())
+        self._clamp_engine_scroll()
+        self.redraw_engines()
+        self._update_engine_scrollbar()
+
+    def _engine_content_height(self):
+        return sum(self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
+                   for row in self.engine_rows)
+
+    def _max_engine_scroll(self):
+        return max(0, self._engine_content_height() - self.engine_canvas.winfo_height())
+
+    def _clamp_engine_scroll(self):
+        self.engine_scroll = max(0, min(self.engine_scroll, self._max_engine_scroll()))
+
+    def _update_engine_scrollbar(self):
+        total = self._max_engine_scroll()
+        if total <= 0:
+            self.engine_scrollbar.set(0.0, 1.0)
+            return
+        first = self.engine_scroll / total
+        last = (self.engine_scroll + self.engine_canvas.winfo_height()) / total
+        self.engine_scrollbar.set(first, min(1.0, last))
+
+    # -------------------------------------------------------------- events
+    def _on_click(self, event):
+        if not self.results:
+            return
+        index = int((event.y + self.scroll) // self.ROW_H)
+        if 0 <= index < len(self.results):
+            self.selected = index
+            self.redraw()
+            self._show_engines(index)
+
+    def _on_up(self, event):
+        self._move_selection(-1)
+
+    def _on_down(self, event):
+        self._move_selection(1)
+
+    def _move_selection(self, delta):
+        if not self.results:
+            return
+        self.selected = max(0, min(len(self.results) - 1, self.selected + delta))
+        self._scroll_to_selected()
+        self.redraw()
+        self._update_scrollbar()
+        self._show_engines(self.selected)
+
+    def _scroll_to_selected(self):
+        if not self.results or self.selected < 0:
+            return
+        # Center the selected row in the visible area (clamped to the list).
+        height = self.canvas.winfo_height()
+        row_center = 6 + self.selected * self.ROW_H + self.ROW_H / 2.0
+        self.scroll = int(row_center - height / 2.0)
+        self.scroll = max(0, min(self.scroll, self._max_scroll()))
+
+    def _on_wheel(self, event):
+        if not self.results:
+            return
+        step = -1 if event.delta > 0 else 1
+        self.scroll += step * self.ROW_H
+        self._clamp_scroll()
+        self.redraw()
+        self._update_scrollbar()
+
+    def _on_scrollbar(self, action, *args):
+        if not self.results:
+            return
+        total = self._max_scroll()
+        if action == "moveto":
+            self.scroll = int(float(args[0]) * total)
+        elif action == "scroll":
+            amount = int(args[1])
+            if args[2] == "units":
+                self.scroll += amount * self.ROW_H
+            else:
+                self.scroll += amount * max(1, self.canvas.winfo_height())
+        self._clamp_scroll()
+        self.redraw()
+        self._update_scrollbar()
+
+    def _max_scroll(self):
+        visible = self.canvas.winfo_height()
+        content = len(self.results) * self.ROW_H
+        return max(0, content - visible)
+
+    def _clamp_scroll(self):
+        self.scroll = max(0, min(self.scroll, self._max_scroll()))
+
+    def _update_scrollbar(self):
+        total = self._max_scroll()
+        if total <= 0:
+            self.scrollbar.set(0.0, 1.0)
+            return
+        first = self.scroll / total
+        last = (self.scroll + self.canvas.winfo_height()) / total
+        self.scrollbar.set(first, min(1.0, last))
