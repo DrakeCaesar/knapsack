@@ -4,6 +4,7 @@ Each builder turns parsed outfits into comparable table rows. Column tuples
 are (header, row key, anchor); widths are auto-sized by the table at runtime.
 """
 
+from .config import EXCLUDE_ZERO_COST
 from .parse import number
 
 # Generator comparison table columns: (header, row key, anchor). Column widths
@@ -105,6 +106,8 @@ def build_generator_rows(outfits):
         space = max(0.0, -number(attrs, "outfit space"))
         mass = number(attrs, "mass")
         cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
         thumbnail = attrs.get("thumbnail", "")
 
         rows.append({
@@ -138,6 +141,8 @@ def build_engine_rows(outfits):
             continue
 
         cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
         mass = number(attrs, "mass")
         space = max(0.0, -number(attrs, "outfit space"),
                     -number(attrs, "engine capacity"))
@@ -206,6 +211,8 @@ def build_weapon_rows(outfits, types=None, mount=None):
             continue
 
         cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
         mass = number(attrs, "mass")
         space = max(0.0, -number(attrs, "outfit space"))
 

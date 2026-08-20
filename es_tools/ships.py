@@ -1,5 +1,6 @@
 """Ship data: bunk-capacity rows and variant deduplication."""
 
+from .config import EXCLUDE_ZERO_COST
 from .parse import number
 
 # Outfit effects used by the ship bunks calculation.
@@ -73,6 +74,9 @@ def build_rows(ships):
     rows = []
     for ship in ships:
         attrs = ship["attrs"]
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
         cargo = max(0.0, number(attrs, "cargo space"))
         outfit = max(0.0, number(attrs, "outfit space"))
         bunks = max(0.0, number(attrs, "bunks"))
@@ -93,7 +97,7 @@ def build_rows(ships):
             "display_name": display_name,
             "is_base": ship["variant"] is None,
             "category": category if isinstance(category, str) else "",
-            "cost": number(attrs, "cost"),
+            "cost": cost,
             "shields": number(attrs, "shields"),
             "hull": number(attrs, "hull"),
             "crew": number(attrs, "required crew"),

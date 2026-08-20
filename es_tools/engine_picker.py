@@ -9,6 +9,7 @@ from tkinter import ttk
 
 import engine_knapsack as ek
 
+from .config import EXCLUDE_ZERO_COST
 from .paths import DATA_DIR, IMAGES_DIR
 from .theme import BG, FG, ENTRY_BG, SELECT_BG
 
@@ -215,9 +216,17 @@ class EnginePickerApp(ttk.Frame):
         self.status_var.set("Loading outfits...")
         threading.Thread(target=self._load_worker, daemon=True).start()
 
+    def _parsed_outfits(self):
+        """Parse outfits once, applying the zero-cost exclusion."""
+        outfits = ek.parse_outfits(self.data_dir)
+        if EXCLUDE_ZERO_COST:
+            outfits = [outfit for outfit in outfits
+                       if outfit["attrs"].get("cost", 0.0) != 0]
+        return outfits
+
     def _load_worker(self):
         try:
-            outfits = ek.parse_outfits(self.data_dir)
+            outfits = self._parsed_outfits()
             engines = ek.build_engines(outfits, [])
             factions = sorted({engine["faction"] for engine in engines})
             self.root.after(0, self._load_done, outfits, factions)
@@ -270,7 +279,7 @@ class EnginePickerApp(ttk.Frame):
     def _compute_worker(self, capacity, filters):
         try:
             if self.outfits is None:
-                self.outfits = ek.parse_outfits(self.data_dir)
+                self.outfits = self._parsed_outfits()
             engines = ek.prune_engines(ek.build_engines(self.outfits, filters))
             if not engines:
                 self.root.after(0, self._compute_done, [], [], capacity)
