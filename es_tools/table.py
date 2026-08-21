@@ -17,9 +17,9 @@ from PySide6.QtCore import (QAbstractTableModel, QModelIndex, QObject, QTimer,
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-                               QMenu, QScrollArea, QSplitter, QStyle,
-                               QStyledItemDelegate, QTableView, QVBoxLayout,
-                               QWidget)
+                               QMenu, QPushButton, QScrollArea, QSplitter,
+                               QStyle, QStyledItemDelegate, QTableView,
+                               QVBoxLayout, QWidget)
 
 import engine_knapsack as ek
 
@@ -115,6 +115,10 @@ class OutfitTableModel(QAbstractTableModel):
         row = self.rows[index.row()]
         _, key, _ = self.columns[index.column()]
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            value = row[key]
+            # Zero cells render blank (and uncolored) so they read as "none".
+            if isinstance(value, (int, float)) and value == 0:
+                return ""
             return self.table._format_cell(row, key, self.decimals.get(key, 0))
         if role == RAW_ROLE:
             return row[key]
@@ -418,10 +422,33 @@ class OutfitTableApp(QWidget):
 
         width = max((box.sizeHint().width() for box in boxes), default=0)
         columns = 6
+        # "Select all" / "Clear all" stacked to the left of the checkboxes.
+        self.select_all_button = QPushButton("Select all")
+        self.clear_all_button = QPushButton("Clear all")
+        self.select_all_button.clicked.connect(self._select_all_factions)
+        self.clear_all_button.clicked.connect(self._clear_all_factions)
+        self.faction_layout.addWidget(self.select_all_button, 0, 0)
+        self.faction_layout.addWidget(self.clear_all_button, 1, 0)
         for index, box in enumerate(boxes):
             box.setMinimumWidth(width)
             self.faction_layout.addWidget(box, index // columns,
-                                          index % columns)
+                                          1 + index % columns)
+
+    def _select_all_factions(self):
+        for box in self.faction_vars.values():
+            box.blockSignals(True)
+            box.setChecked(True)
+            box.blockSignals(False)
+        self._save_config()
+        self._refresh_rows()
+
+    def _clear_all_factions(self):
+        for box in self.faction_vars.values():
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
+        self._save_config()
+        self._refresh_rows()
 
     def _on_faction_toggled(self, *args):
         self._save_config()
@@ -636,8 +663,6 @@ class OutfitTableApp(QWidget):
                     width = png_width(path)
                 except OSError:
                     width = 0
-                if width and "@2x" in path:
-                    width /= 2.0
                 if width > widest:
                     widest = width
             self._bridge.measured.emit(generation, float(widest))
@@ -713,10 +738,10 @@ class OutfitTableApp(QWidget):
             self.description_label.hide()
 
     def _load_pixmap(self, path):
-        """Load a sprite at its native resolution.
+        """Load a sprite at its full pixel resolution.
 
-        High-DPI (@2x) sprites get their device pixel ratio set so they are
-        shown at game size but at double resolution.
+        @2x sprites are shown at their native (2x) size rather than downscaled,
+        so Qt's automatic @2x device-pixel-ratio detection is overridden.
         """
         if path in self._pixmap_cache:
             return self._pixmap_cache[path]
@@ -724,7 +749,7 @@ class OutfitTableApp(QWidget):
         if pixmap.isNull():
             return None
         if "@2x" in path:
-            pixmap.setDevicePixelRatio(2.0)
+            pixmap.setDevicePixelRatio(1.0)
         self._pixmap_cache[path] = pixmap
         return pixmap
 

@@ -51,12 +51,12 @@ class ShipBunksApp(OutfitTableApp):
     """
 
     COLUMNS = SHIP_COLUMNS
-    TEXT_KEYS = {"name", "display_name", "category"}
+    TEXT_KEYS = {"name", "display_name", "category", "faction"}
     REVERSED_KEYS = {"max_bunks", "bunks", "cargo", "outfit", "expansions",
                      "outfit_total", "bunk_rooms", "leftover_outfit",
                      "shields", "hull", "crew"}
     RATIO_KEYS = set()
-    HAS_FACTIONS = False
+    HAS_FACTIONS = True
     HAS_SHOW_ALL = True
     NOUN = "ship"
     CONFIG_FILENAME = ".endless_sky_ship_bunks.json"
@@ -78,6 +78,9 @@ class ShipBunksApp(OutfitTableApp):
         self.ships = ships
         self.full_rows = full_rows
         self.deduped_rows = deduped_rows
+        if self.HAS_FACTIONS:
+            self._build_faction_checkboxes(
+                sorted({row["faction"] for row in full_rows}))
         self._refresh_rows()
 
     def _base_rows(self):

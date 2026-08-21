@@ -15,6 +15,7 @@ BUNK_ROOM_OUTFIT_SPACE = 20.0
 SHIP_COLUMNS = [
     ("Source Name", "name", "w"),
     ("In-Game Name", "display_name", "w"),
+    ("Faction", "faction", "w"),
     ("Category", "category", "w"),
     ("Max Bunks", "max_bunks", "e"),
     ("Bunks", "bunks", "e"),
@@ -64,7 +65,8 @@ def resolve_ships(blocks):
 
         name = block["variant"] if block["variant"] is not None else block["base"]
         ships.append({"name": name, "base": block["base"],
-                      "variant": block["variant"], "attrs": attrs})
+                      "variant": block["variant"], "attrs": attrs,
+                      "faction": block["faction"]})
 
     return ships
 
@@ -98,6 +100,7 @@ def build_rows(ships):
             "display_name": display_name,
             "description": description if isinstance(description, str) else "",
             "is_base": ship["variant"] is None,
+            "faction": ship["faction"],
             "category": category if isinstance(category, str) else "",
             "cost": cost,
             "shields": number(attrs, "shields"),

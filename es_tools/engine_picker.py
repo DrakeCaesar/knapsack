@@ -4,8 +4,8 @@ import json
 import os
 import threading
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSize, Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QPushButton,
@@ -19,6 +19,17 @@ from .images import find_plugin_images_dir
 from .paths import DATA_DIR, IMAGES_DIR
 from .table import _SignalBridge
 from .theme import BG, FG, SELECT_BG
+
+
+def pick_monospace_font():
+    """Return the best available monospace font (Fira Code Nerd Font first)."""
+    families = {name.lower() for name in QFontDatabase.families()}
+    for name in ("Fira Code Nerd Font", "Fira Code", "Cascadia Code",
+                 "Consolas", "Courier New", "DejaVu Sans Mono",
+                 "Liberation Mono", "Menlo", "Monaco"):
+        if name.lower() in families:
+            return QFont(name)
+    return QFont("monospace")
 
 
 class ResultsModel(QAbstractTableModel):
@@ -61,6 +72,10 @@ class BarDelegate(QStyledItemDelegate):
         result = model.results[index.row()]
 
         painter.save()
+        # Monospace font (set on the view) keeps the T/U labels and the
+        # value decimal points aligned across rows.
+        painter.setFont(option.font)
+
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, QColor(SELECT_BG))
         else:
@@ -68,26 +83,45 @@ class BarDelegate(QStyledItemDelegate):
 
         rect = option.rect
         half = rect.height() / 2
-        bar_x = 76
-        bar_width = max(30, rect.width() - bar_x - 14)
+
+        # Space-padded, fixed-width text: "T   450.0" / "U    12.3" so the
+        # labels share a column and the decimals line up.
+        thrust_text = "T {:8.1f}".format(result["thrust"])
+        turn_text = "U {:8.1f}".format(result["turn"])
+        metrics = painter.fontMetrics()
+        text_width = max(metrics.horizontalAdvance(thrust_text),
+                         metrics.horizontalAdvance(turn_text))
+
+        # Place the bars just past the text, clamped inside the cell.
+        bar_x = rect.left() + text_width + 14
+        if bar_x < rect.left() + 48:
+            bar_x = rect.left() + 48
+        if bar_x > rect.right() - 16:
+            bar_x = rect.right() - 16
+        bar_width = rect.right() - bar_x - 8
 
         painter.setPen(QColor(FG))
-        painter.drawText(rect.adjusted(6, 0, 0, -half),
-                         Qt.AlignmentFlag.AlignLeft
-                         | Qt.AlignmentFlag.AlignVCenter,
-                         "T {:6.1f}".format(result["thrust"]))
-        thrust_len = int(bar_width * result["thrust"] / model.max_thrust)
-        painter.fillRect(bar_x, int(rect.top() + 4), thrust_len, 6,
-                         self.THRUST_COLOR)
+        painter.drawText(
+            QRect(rect.left(), rect.top(), bar_x - rect.left(), int(half)),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            thrust_text)
+        if bar_width > 0:
+            thrust_len = min(int(bar_width * result["thrust"] / model.max_thrust),
+                             bar_width)
+            painter.fillRect(bar_x, rect.top() + 4, thrust_len, 6,
+                             self.THRUST_COLOR)
 
         painter.setPen(QColor(FG))
-        painter.drawText(rect.adjusted(6, half, 0, 0),
-                         Qt.AlignmentFlag.AlignLeft
-                         | Qt.AlignmentFlag.AlignVCenter,
-                         "U {:6.1f}".format(result["turn"]))
-        turn_len = int(bar_width * result["turn"] / model.max_turn)
-        painter.fillRect(bar_x, int(rect.top() + half + 2), turn_len, 6,
-                         self.TURN_COLOR)
+        painter.drawText(
+            QRect(rect.left(), rect.top() + int(half), bar_x - rect.left(),
+                  rect.height() - int(half)),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            turn_text)
+        if bar_width > 0:
+            turn_len = min(int(bar_width * result["turn"] / model.max_turn),
+                           bar_width)
+            painter.fillRect(bar_x, rect.top() + int(half) + 2, turn_len, 6,
+                             self.TURN_COLOR)
 
         painter.restore()
 
@@ -177,6 +211,7 @@ class EnginePickerApp(QWidget):
 
         # Left: the results list with thrust/turn bars.
         self.results_view = QTableView()
+        self.results_view.setFont(pick_monospace_font())
         self.results_model = ResultsModel(self)
         self.results_view.setModel(self.results_model)
         self.results_view.setItemDelegate(BarDelegate(self.results_view))
@@ -188,6 +223,8 @@ class EnginePickerApp(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         self.results_view.verticalHeader().setVisible(False)
         self.results_view.horizontalHeader().setVisible(False)
+        self.results_view.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch)
         self.results_view.verticalHeader().setDefaultSectionSize(30)
         self.results_view.setShowGrid(False)
         self.results_view.selectionModel().currentRowChanged.connect(
@@ -255,10 +292,33 @@ class EnginePickerApp(QWidget):
 
         width = max((box.sizeHint().width() for box in boxes), default=0)
         columns = 6
+        # "Select all" / "Clear all" stacked to the left of the checkboxes.
+        self.select_all_button = QPushButton("Select all")
+        self.clear_all_button = QPushButton("Clear all")
+        self.select_all_button.clicked.connect(self._select_all_factions)
+        self.clear_all_button.clicked.connect(self._clear_all_factions)
+        self.faction_layout.addWidget(self.select_all_button, 0, 0)
+        self.faction_layout.addWidget(self.clear_all_button, 1, 0)
         for index, box in enumerate(boxes):
             box.setMinimumWidth(width)
             self.faction_layout.addWidget(box, index // columns,
-                                          index % columns)
+                                          1 + index % columns)
+
+    def _select_all_factions(self):
+        for box in self.faction_vars.values():
+            box.blockSignals(True)
+            box.setChecked(True)
+            box.blockSignals(False)
+        self._save_config()
+        self.compute()
+
+    def _clear_all_factions(self):
+        for box in self.faction_vars.values():
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
+        self._save_config()
+        self.compute()
 
     def _on_faction_toggled(self, *args):
         self._save_config()
@@ -435,11 +495,9 @@ class EnginePickerApp(QWidget):
         if pixmap.isNull():
             return None
         if "@2x" in path:
-            pixmap.setDevicePixelRatio(2.0)
-        # Shrink very large sprites to a sensible list icon size, preserving
-        # the device pixel ratio for crisp high-DPI sprites.
-        size = pixmap.deviceIndependentSize()
-        if size.width() > 160 or size.height() > 160:
+            pixmap.setDevicePixelRatio(1.0)
+        # Shrink very large sprites to a sensible list icon size.
+        if pixmap.width() > 160 or pixmap.height() > 160:
             pixmap = pixmap.scaled(160, 160,
                                    Qt.AspectRatioMode.KeepAspectRatio,
                                    Qt.TransformationMode.SmoothTransformation)

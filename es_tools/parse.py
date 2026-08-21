@@ -77,6 +77,7 @@ def parse_blocks(data_dir):
     """Parse all ship definitions into base/variant blocks with attribute ops."""
     blocks = []
     for path in data_files(data_dir):
+        faction = os.path.basename(os.path.dirname(path))
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             lines = handle.read().splitlines()
 
@@ -138,7 +139,8 @@ def parse_blocks(data_dir):
                 if descriptions:
                     ops.append(("set", {"description": "\n".join(descriptions)}))
 
-                blocks.append({"base": base, "variant": variant, "ops": ops})
+                blocks.append({"base": base, "variant": variant,
+                               "ops": ops, "faction": faction})
             else:
                 i += 1
 
