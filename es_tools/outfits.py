@@ -109,10 +109,12 @@ def build_generator_rows(outfits):
         if EXCLUDE_ZERO_COST and cost == 0:
             continue
         thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
 
         rows.append({
             "name": outfit["name"],
             "faction": outfit["faction"],
+            "description": description if isinstance(description, str) else "",
             "cost": cost,
             "mass": mass,
             "space": space,
@@ -149,10 +151,12 @@ def build_engine_rows(outfits):
         energy = number(attrs, "thrusting energy") + number(attrs, "turning energy")
         heat = number(attrs, "thrusting heat") + number(attrs, "turning heat")
         thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
 
         rows.append({
             "name": outfit["name"],
             "faction": outfit["faction"],
+            "description": description if isinstance(description, str) else "",
             "cost": cost,
             "mass": mass,
             "space": space,
@@ -265,12 +269,14 @@ def build_weapon_rows(outfits, types=None, mount=None):
         fuel = number(weapon, "firing fuel") * burst_count / reload
         firing_force = number(weapon, "firing force") * burst_count / reload
         thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
 
         rows.append({
             "name": outfit["name"],
             "faction": outfit["faction"],
             "mount": category,
             "type": wtype,
+            "description": description if isinstance(description, str) else "",
             "cost": cost,
             "mass": mass,
             "space": space,

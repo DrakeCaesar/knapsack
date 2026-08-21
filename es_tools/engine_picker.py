@@ -1,223 +1,221 @@
-"""Engine Picker: solve the engine knapsack frontier and browse results."""
+"""Engine Picker: solve the engine knapsack frontier and browse the results."""
 
 import json
 import os
 import threading
-import tkinter as tk
-import tkinter.font as tkfont
-from tkinter import ttk
+
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSize, Qt
+from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QGridLayout,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QPushButton,
+                               QSplitter, QStyle, QStyledItemDelegate,
+                               QTableView, QVBoxLayout, QWidget)
 
 import engine_knapsack as ek
 
 from .config import EXCLUDE_ZERO_COST
+from .images import find_plugin_images_dir
 from .paths import DATA_DIR, IMAGES_DIR
-from .theme import BG, FG, ENTRY_BG, SELECT_BG
+from .table import _SignalBridge
+from .theme import BG, FG, SELECT_BG
 
 
-class EnginePickerApp(ttk.Frame):
-    ROW_H = 30
-    ENGINE_ROW_H = 168
-    ENGINE_HEADER_H = 26
-    THRUST_COLOR = "#4a90d9"
-    TURN_COLOR = "#e08a4a"
+class ResultsModel(QAbstractTableModel):
+    """Single-column model over the frontier results (thrust + turn)."""
 
-    def __init__(self, master):
-        super().__init__(master)
-        self.root = master.winfo_toplevel()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.results = []
+        self.max_thrust = 1.0
+        self.max_turn = 1.0
 
+    def set_results(self, results):
+        self.beginResetModel()
+        self.results = results
+        self.max_thrust = max((r["thrust"] for r in results), default=0.0) or 1.0
+        self.max_turn = max((r["turn"] for r in results), default=0.0) or 1.0
+        self.endResetModel()
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.results)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 1
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        return None
+
+
+class BarDelegate(QStyledItemDelegate):
+    """Draws a row with a blue thrust bar and an orange turn bar."""
+
+    THRUST_COLOR = QColor("#4a90d9")
+    TURN_COLOR = QColor("#e08a4a")
+
+    def paint(self, painter, option, index):
+        model = index.model()
+        if not isinstance(model, ResultsModel):
+            super().paint(painter, option, index)
+            return
+        result = model.results[index.row()]
+
+        painter.save()
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, QColor(SELECT_BG))
+        else:
+            painter.fillRect(option.rect, QColor(BG))
+
+        rect = option.rect
+        half = rect.height() / 2
+        bar_x = 76
+        bar_width = max(30, rect.width() - bar_x - 14)
+
+        painter.setPen(QColor(FG))
+        painter.drawText(rect.adjusted(6, 0, 0, -half),
+                         Qt.AlignmentFlag.AlignLeft
+                         | Qt.AlignmentFlag.AlignVCenter,
+                         "T {:6.1f}".format(result["thrust"]))
+        thrust_len = int(bar_width * result["thrust"] / model.max_thrust)
+        painter.fillRect(bar_x, int(rect.top() + 4), thrust_len, 6,
+                         self.THRUST_COLOR)
+
+        painter.setPen(QColor(FG))
+        painter.drawText(rect.adjusted(6, half, 0, 0),
+                         Qt.AlignmentFlag.AlignLeft
+                         | Qt.AlignmentFlag.AlignVCenter,
+                         "U {:6.1f}".format(result["turn"]))
+        turn_len = int(bar_width * result["turn"] / model.max_turn)
+        painter.fillRect(bar_x, int(rect.top() + half + 2), turn_len, 6,
+                         self.TURN_COLOR)
+
+        painter.restore()
+
+
+class EnginePickerApp(QWidget):
+    """Solver tab listing every non-dominated (thrust, turn) combination."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.config_path = os.path.join(os.path.expanduser("~"),
                                         ".endless_sky_engine_picker.json")
-        self._save_after_id = None
-        self._load_config()
+        self.config = self._load_config()
 
         self.data_dir = DATA_DIR
+        self.images_dir = IMAGES_DIR
+        self.plugin_images_dir = find_plugin_images_dir()
         self.outfits = None
         self.engines = []
         self.capacity = 0
         self.results = []
         self.selected = -1
-        self.scroll = 0
-
-        self.images_dir = IMAGES_DIR
-        self._photo_cache = {}
-        self.engine_rows = []
-        self.engine_scroll = 0
-
         self.factions = []
         self.faction_vars = {}
-        self._debounce_id = None
+        self._photo_cache = {}
         self._computing = False
         self._pending = False
 
-        self.bg = BG
-        self.fg = FG
-        self.entry_bg = ENTRY_BG
-        self.select_bg = SELECT_BG
-        self.mono_font = self._pick_mono_font()
+        self._bridge = _SignalBridge(self)
+        self._bridge.loaded.connect(self._on_loaded)
+        self._bridge.failed.connect(self._compute_error)
 
-        self._build_controls()
-        self._build_faction_bar()
-        self._build_panels()
-
+        self._build_ui()
         self._start_loading()
 
-    def _pick_mono_font(self):
-        """Return the Fira Code Nerd Font descriptor, or TkFixedFont."""
-        families = set(tkfont.families(self.root))
-        if "FiraCode Nerd Font" in families:
-            return ("FiraCode Nerd Font", 9)
-        if "Fira Code Nerd Font" in families:
-            return ("Fira Code Nerd Font", 9)
-        return "TkFixedFont"
-
-    # --------------------------------------------------------- persistence
+    # ------------------------------------------------------------- persistence
     def _load_config(self):
-        self.config = {}
         try:
             with open(self.config_path, "r", encoding="utf-8") as handle:
-                self.config = json.load(handle)
-            geometry = self.config.get("geometry")
-            if geometry:
-                try:
-                    self.root.geometry(geometry)
-                except tk.TclError:
-                    pass
+                return json.load(handle)
         except (OSError, ValueError):
-            self.config = {}
-
-    def _on_configure(self, event):
-        if self.root.state() != "normal":
-            return
-        if not self.faction_vars:
-            return
-        if self._save_after_id is not None:
-            self.root.after_cancel(self._save_after_id)
-        self._save_after_id = self.root.after(500, self._save_config)
+            return {}
 
     def _save_config(self):
-        self._save_after_id = None
         try:
-            capacity = int(self.capacity_var.get())
-        except (ValueError, tk.TclError):
+            capacity = int(self.capacity_entry.text())
+        except ValueError:
             capacity = 180
-
-        data = {
-            "geometry": self.root.geometry(),
-            "capacity": capacity,
-        }
+        data = {"capacity": capacity}
         if self.faction_vars:
-            data["factions"] = [name for name, var in self.faction_vars.items()
-                                if var.get()]
-        elif "factions" in self.config:
-            data["factions"] = self.config["factions"]
-
+            data["factions"] = [name for name, box in self.faction_vars.items()
+                                if box.isChecked()]
         try:
             with open(self.config_path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
         except OSError:
             pass
 
-    def _on_close(self):
-        self._save_config()
-        self.root.destroy()
+    # -------------------------------------------------------------------- UI
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(6)
 
-    # ------------------------------------------------------------------ UI
-    def _build_controls(self):
-        bar = ttk.Frame(self, padding=8)
-        bar.pack(side=tk.TOP, fill=tk.X)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Engine capacity:"))
+        self.capacity_entry = QLineEdit(str(self.config.get("capacity", 180)))
+        self.capacity_entry.setFixedWidth(64)
+        controls.addWidget(self.capacity_entry)
+        self.compute_button = QPushButton("Compute")
+        self.compute_button.clicked.connect(self.compute)
+        self.compute_button.setEnabled(False)
+        controls.addWidget(self.compute_button)
+        self.status_label = QLabel("")
+        controls.addWidget(self.status_label)
+        controls.addStretch(1)
+        root.addLayout(controls)
 
-        ttk.Label(bar, text="Engine capacity:").pack(side=tk.LEFT)
-        self.capacity_var = tk.StringVar(value=str(self.config.get("capacity", 180)))
-        ttk.Entry(bar, textvariable=self.capacity_var, width=6).pack(
-            side=tk.LEFT, padx=(4, 12))
+        self.faction_widget = QWidget()
+        self.faction_layout = QGridLayout(self.faction_widget)
+        self.faction_layout.setContentsMargins(0, 0, 0, 0)
+        self.faction_layout.setSpacing(2)
+        root.addWidget(self.faction_widget, 0,
+                       Qt.AlignmentFlag.AlignLeft)
 
-        self.compute_btn = ttk.Button(bar, text="Compute", command=self.compute)
-        self.compute_btn.pack(side=tk.LEFT, padx=12)
-        self.compute_btn.config(state=tk.DISABLED)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(splitter, 1)
 
-        self.status_var = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
+        # Left: the results list with thrust/turn bars.
+        self.results_view = QTableView()
+        self.results_model = ResultsModel(self)
+        self.results_view.setModel(self.results_model)
+        self.results_view.setItemDelegate(BarDelegate(self.results_view))
+        self.results_view.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self.results_view.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.results_view.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.results_view.verticalHeader().setVisible(False)
+        self.results_view.horizontalHeader().setVisible(False)
+        self.results_view.verticalHeader().setDefaultSectionSize(30)
+        self.results_view.setShowGrid(False)
+        self.results_view.selectionModel().currentRowChanged.connect(
+            self._on_result_selected)
+        splitter.addWidget(self.results_view)
 
-    def _build_faction_bar(self):
-        self.checkbox_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
-        self.checkbox_frame.pack(side=tk.TOP, fill=tk.X)
+        # Right: summary + the selected result's engine list.
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(6, 0, 0, 0)
+        rv.setSpacing(6)
+        self.summary_label = QLabel("Select a result.")
+        rv.addWidget(self.summary_label, 0)
+        self.engine_list = QListWidget()
+        self.engine_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection)
+        self.engine_list.setIconSize(QSize(80, 80))
+        rv.addWidget(self.engine_list, 1)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
 
-    def _build_panels(self):
-        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
-        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
-
-        # Left: canvas list of results, each row with thrust/turn bars.
-        left = ttk.Frame(paned)
-        self.canvas = tk.Canvas(left, width=340, background=self.bg,
-                                highlightthickness=1, highlightbackground="#333333")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        self.scrollbar = ttk.Scrollbar(left, orient=tk.VERTICAL,
-                                       command=self._on_scrollbar)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.canvas.bind("<Button-1>", self._on_click)
-        self.canvas.bind("<MouseWheel>", self._on_wheel)
-        self.canvas.bind("<Configure>", lambda e: self.redraw())
-        paned.add(left, weight=1)
-
-        # Right: summary + engine list with thumbnails for the selected result.
-        right = ttk.Frame(paned)
-        self.summary_var = tk.StringVar(value="Select a result.")
-        ttk.Label(right, textvariable=self.summary_var, padding=6).pack(
-            side=tk.TOP, fill=tk.X)
-
-        self.engine_canvas = tk.Canvas(right, background=self.bg,
-                                       highlightthickness=0)
-        self.engine_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
-                                padx=(6, 0), pady=6)
-        engine_scroll = ttk.Scrollbar(right, orient=tk.VERTICAL,
-                                      command=self._on_engine_scrollbar)
-        engine_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=6)
-        self.engine_scrollbar = engine_scroll
-
-        self.engine_canvas.bind("<MouseWheel>", self._on_engine_wheel)
-        self.engine_canvas.bind("<Configure>", lambda e: self.redraw_engines())
-        paned.add(right, weight=2)
-
-    # -------------------------------------------------------------- actions
-    def compute(self):
-        if self._computing:
-            self._pending = True
-            return
-        try:
-            capacity = int(self.capacity_var.get())
-        except ValueError:
-            self.status_var.set("Capacity must be an integer.")
-            return
-
-        capacity = max(0, capacity)
-        filters = self._current_filters()
-
-        self._computing = True
-        self._pending = False
-        self.status_var.set("Computing...")
-        self.compute_btn.config(state=tk.DISABLED)
-        threading.Thread(target=self._compute_worker,
-                         args=(capacity, filters), daemon=True).start()
-
-    def _current_filters(self):
-        if not self.factions:
-            return []
-        checked = [name for name, var in self.faction_vars.items() if var.get()]
-        if not checked:
-            # A token that matches no faction name, yielding an empty result.
-            return ["\u0000"]
-        if len(checked) == len(self.factions):
-            return []
-        return checked
-
+    # ------------------------------------------------------------- loading
     def _start_loading(self):
-        self.status_var.set("Loading outfits...")
+        self.status_label.setText("Loading outfits...")
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _parsed_outfits(self):
-        """Parse outfits once, applying the zero-cost exclusion."""
         outfits = ek.parse_outfits(self.data_dir)
         if EXCLUDE_ZERO_COST:
             outfits = [outfit for outfit in outfits
@@ -229,52 +227,68 @@ class EnginePickerApp(ttk.Frame):
             outfits = self._parsed_outfits()
             engines = ek.build_engines(outfits, [])
             factions = sorted({engine["faction"] for engine in engines})
-            self.root.after(0, self._load_done, outfits, factions)
+            self._bridge.loaded.emit(("load", outfits, factions))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._compute_error, str(exc))
-
-    def _load_done(self, outfits, factions):
-        self.outfits = outfits
-        self._build_faction_checkboxes(factions)
-        self.compute_btn.config(state=tk.NORMAL)
-        self.status_var.set("")
-        self.compute()
+            self._bridge.failed.emit(str(exc))
 
     def _build_faction_checkboxes(self, factions):
-        for child in self.checkbox_frame.winfo_children():
-            child.destroy()
+        while self.faction_layout.count():
+            item = self.faction_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
         self.factions = factions
         self.faction_vars = {}
+        saved = set(self.config["factions"]) if "factions" in self.config else None
+        all_checked = saved is None
 
-        if "factions" in self.config:
-            saved = set(self.config["factions"])
-            all_checked = False
-        else:
-            saved = set()
-            all_checked = True
+        # Uniform column width based on the longest label, so the checkboxes
+        # are packed to the left with even spacing instead of stretching.
+        boxes = []
+        for name in factions:
+            box = QCheckBox(name)
+            box.setChecked(all_checked or name in saved)
+            box.toggled.connect(self._on_faction_toggled)
+            self.faction_vars[name] = box
+            boxes.append(box)
 
+        width = max((box.sizeHint().width() for box in boxes), default=0)
         columns = 6
-        for index, name in enumerate(factions):
-            var = tk.BooleanVar(value=all_checked or name in saved)
-            var.trace_add("write", self._on_faction_toggled)
-            self.faction_vars[name] = var
-            check = ttk.Checkbutton(self.checkbox_frame, text=name, variable=var)
-            check.grid(row=index // columns, column=index % columns,
-                       sticky="w", padx=2, pady=1)
+        for index, box in enumerate(boxes):
+            box.setMinimumWidth(width)
+            self.faction_layout.addWidget(box, index // columns,
+                                          index % columns)
 
     def _on_faction_toggled(self, *args):
         self._save_config()
-        self._schedule_compute()
-
-    def _schedule_compute(self):
-        if self._debounce_id is not None:
-            self.root.after_cancel(self._debounce_id)
-        self._debounce_id = self.root.after(200, self._run_compute)
-
-    def _run_compute(self):
-        self._debounce_id = None
         self.compute()
+
+    def _current_filters(self):
+        if not self.factions:
+            return []
+        checked = [name for name, box in self.faction_vars.items()
+                   if box.isChecked()]
+        if not checked:
+            return ["\u0000"]
+        if len(checked) == len(self.factions):
+            return []
+        return checked
+
+    # ------------------------------------------------------------- compute
+    def compute(self):
+        try:
+            capacity = int(self.capacity_entry.text())
+        except ValueError:
+            self.status_label.setText("Capacity must be an integer.")
+            return
+
+        capacity = max(0, capacity)
+        filters = self._current_filters()
+        self.status_label.setText("Computing...")
+        self.compute_button.setEnabled(False)
+        threading.Thread(target=self._compute_worker,
+                         args=(capacity, filters), daemon=True).start()
 
     def _compute_worker(self, capacity, filters):
         try:
@@ -282,55 +296,47 @@ class EnginePickerApp(ttk.Frame):
                 self.outfits = self._parsed_outfits()
             engines = ek.prune_engines(ek.build_engines(self.outfits, filters))
             if not engines:
-                self.root.after(0, self._compute_done, [], [], capacity)
+                self._bridge.loaded.emit(("compute", [], [], capacity))
                 return
             frontier = ek.compute_frontier(capacity, engines)
-            results = [{
-                "node": node,
-                "thrust": node.thrust,
-                "turn": node.turn,
-                "weight": node.weight,
-            } for node in frontier]
-            self.root.after(0, self._compute_done, results, engines, capacity)
+            results = [{"node": node, "thrust": node.thrust,
+                        "turn": node.turn, "weight": node.weight}
+                       for node in frontier]
+            self._bridge.loaded.emit(("compute", results, engines, capacity))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._compute_error, str(exc))
+            self._bridge.failed.emit(str(exc))
 
-    def _compute_done(self, results, engines, capacity):
-        self.results = results
-        self.engines = engines
-        self.capacity = capacity
-        self.selected = self._balanced_index(results) if results else -1
-        self.scroll = 0
-        self.compute_btn.config(state=tk.NORMAL)
-        if not results:
-            self.status_var.set("No matching engines found.")
-            self.engine_rows = []
-            self.redraw_engines()
-            self._update_engine_scrollbar()
-        else:
-            self.status_var.set("{} combinations.".format(len(results)))
-        self._scroll_to_selected()
-        self.redraw()
-        self._update_scrollbar()
-        if self.selected >= 0:
-            self._show_engines(self.selected)
-        self._save_config()
-
-        self._computing = False
-        if self._pending:
-            self._pending = False
+    def _on_loaded(self, payload):
+        kind = payload[0]
+        if kind == "load":
+            _, outfits, factions = payload
+            self.outfits = outfits
+            self._build_faction_checkboxes(factions)
+            self.compute_button.setEnabled(True)
+            self.status_label.setText("")
             self.compute()
+        else:
+            _, results, engines, capacity = payload
+            self.results = results
+            self.engines = engines
+            self.capacity = capacity
+            self.selected = self._balanced_index(results) if results else -1
+            self.compute_button.setEnabled(True)
+            if not results:
+                self.status_label.setText("No matching engines found.")
+                self.engine_list.clear()
+                self.summary_label.setText("Select a result.")
+            else:
+                self.status_label.setText(
+                    "{} combinations.".format(len(results)))
+            self.results_model.set_results(results)
+            self._select_result(self.selected)
 
     def _compute_error(self, message):
-        self._computing = False
-        self.compute_btn.config(state=tk.NORMAL)
-        self.status_var.set("Error: {}".format(message))
-        if self._pending:
-            self._pending = False
-            self.compute()
+        self.compute_button.setEnabled(True)
+        self.status_label.setText("Error: {}".format(message))
 
     def _balanced_index(self, results):
-        """Return the result whose thrust and turn are most balanced."""
         if not results:
             return -1
         max_thrust = max(r["thrust"] for r in results) or 1.0
@@ -338,63 +344,32 @@ class EnginePickerApp(ttk.Frame):
         best = 0
         best_score = None
         for index, result in enumerate(results):
-            score = abs(result["thrust"] / max_thrust - result["turn"] / max_turn)
+            score = abs(result["thrust"] / max_thrust
+                        - result["turn"] / max_turn)
             if best_score is None or score < best_score:
                 best_score = score
                 best = index
         return best
 
-    # ------------------------------------------------------------- drawing
-    def redraw(self):
-        canvas = self.canvas
-        canvas.delete("all")
-        if not self.results:
-            canvas.create_text(10, 10, anchor="nw", text="No results.", fill=self.fg)
+    def _on_result_selected(self, current, previous):
+        row = current.row()
+        if 0 <= row < len(self.results):
+            self.selected = row
+            self._show_engines(row)
+
+    def _select_result(self, index):
+        if index < 0 or index >= len(self.results):
             return
-
-        max_thrust = max(r["thrust"] for r in self.results) or 1.0
-        max_turn = max(r["turn"] for r in self.results) or 1.0
-
-        width = max(120, canvas.winfo_width())
-        bar_x = 76
-        bar_width = max(30, width - bar_x - 14)
-        y = 6 - self.scroll
-
-        for index, result in enumerate(self.results):
-            if y + self.ROW_H < 0:
-                y += self.ROW_H
-                continue
-            if y > canvas.winfo_height():
-                break
-
-            if index == self.selected:
-                canvas.create_rectangle(2, y, width - 2, y + self.ROW_H - 2,
-                                        fill=self.select_bg, outline="")
-
-            thrust_len = int(bar_width * result["thrust"] / max_thrust)
-            turn_len = int(bar_width * result["turn"] / max_turn)
-
-            canvas.create_text(6, y + 1, anchor="nw",
-                               text="T {:6.1f}".format(result["thrust"]),
-                               fill=self.fg, font=self.mono_font)
-            canvas.create_rectangle(bar_x, y + 4, bar_x + thrust_len, y + 10,
-                                    fill=self.THRUST_COLOR, outline="")
-
-            canvas.create_text(6, y + 15, anchor="nw",
-                               text="U {:6.1f}".format(result["turn"]),
-                               fill=self.fg, font=self.mono_font)
-            canvas.create_rectangle(bar_x, y + 18, bar_x + turn_len, y + 24,
-                                    fill=self.TURN_COLOR, outline="")
-
-            y += self.ROW_H
+        self.results_view.setCurrentIndex(self.results_model.index(index, 0))
+        self._show_engines(index)
 
     def _show_engines(self, index):
+        if index < 0 or index >= len(self.results):
+            return
         result = self.results[index]
         counts = ek._recipe(result["node"], self.engines)
 
-        dual = []
-        thrusters = []
-        steering = []
+        dual, thrusters, steering = [], [], []
         for count, engine in counts.values():
             entry = (count, engine, self._thumbnail(engine))
             if engine["thrust"] > 0 and engine["turn"] > 0:
@@ -404,213 +379,80 @@ class EnginePickerApp(ttk.Frame):
             else:
                 steering.append(entry)
         dual.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["turn"]))
-        thrusters.sort(key=lambda entry: (-entry[1]["thrust"], -entry[1]["weight"]))
-        steering.sort(key=lambda entry: (-entry[1]["turn"], -entry[1]["weight"]))
+        thrusters.sort(key=lambda entry: (-entry[1]["thrust"],
+                                          -entry[1]["weight"]))
+        steering.sort(key=lambda entry: (-entry[1]["turn"],
+                                         -entry[1]["weight"]))
 
-        rows = []
+        self.engine_list.clear()
         if dual:
-            rows.append(("header", "Multi-use engines"))
-            rows.extend(("engine", *entry) for entry in dual)
+            self._add_header("Multi-use engines")
+            for entry in dual:
+                self._add_engine_item(entry)
         if thrusters:
-            rows.append(("header", "Thrusters"))
-            rows.extend(("engine", *entry) for entry in thrusters)
+            self._add_header("Thrusters")
+            for entry in thrusters:
+                self._add_engine_item(entry)
         if steering:
-            rows.append(("header", "Steering"))
-            rows.extend(("engine", *entry) for entry in steering)
+            self._add_header("Steering")
+            for entry in steering:
+                self._add_engine_item(entry)
 
-        self.engine_rows = rows
-        self.engine_scroll = 0
-
-        self.summary_var.set(
+        self.summary_label.setText(
             "Thrust {:.2f}   Turn {:.2f}   Used {}   Unused {}".format(
                 result["thrust"], result["turn"],
                 result["weight"], self.capacity - result["weight"]))
-        self.redraw_engines()
-        self._update_engine_scrollbar()
 
-    # ------------------------------------------------------ engine thumbnails
+    def _add_header(self, text):
+        item = QListWidgetItem(text)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        font = item.font()
+        font.setBold(True)
+        item.setFont(font)
+        self.engine_list.addItem(item)
+
+    def _add_engine_item(self, entry):
+        count, engine, pixmap = entry
+        text = "{}x {}  ({})\nweight {:>3}   thrust {:>7.2f}   turn {:>7.2f}".format(
+            count, engine["name"], engine["faction"],
+            engine["weight"], engine["thrust"], engine["turn"])
+        item = QListWidgetItem(text)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        if pixmap is not None:
+            item.setIcon(pixmap)
+        self.engine_list.addItem(item)
+
     def _thumbnail(self, engine):
         thumb = engine.get("thumbnail") or ""
         if not thumb:
             return None
-        path = os.path.join(self.images_dir, thumb + ".png")
-        if not os.path.exists(path):
+        path = self._thumbnail_path(thumb)
+        if not path:
             return None
         if path in self._photo_cache:
             return self._photo_cache[path]
-
-        try:
-            image = tk.PhotoImage(file=path)
-        except tk.TclError:
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
             return None
-        # Show the thumbnails at their native resolution so they stay crisp;
-        # only shrink extremely large images to keep the rows a sensible size.
-        # Never upscale, because PhotoImage.zoom() uses nearest-neighbor and
-        # would make the sprites look pixelated.
-        largest = max(image.width(), image.height())
-        if largest > 160:
-            factor = (largest + 159) // 160
-            image = image.subsample(factor, factor)
-        self._photo_cache[path] = image
-        return image
+        if "@2x" in path:
+            pixmap.setDevicePixelRatio(2.0)
+        # Shrink very large sprites to a sensible list icon size, preserving
+        # the device pixel ratio for crisp high-DPI sprites.
+        size = pixmap.deviceIndependentSize()
+        if size.width() > 160 or size.height() > 160:
+            pixmap = pixmap.scaled(160, 160,
+                                   Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+        self._photo_cache[path] = pixmap
+        return pixmap
 
-    def redraw_engines(self):
-        canvas = self.engine_canvas
-        canvas.delete("all")
-        if not self.engine_rows:
-            canvas.create_text(10, 10, anchor="nw", text="Select a result.",
-                               fill=self.fg)
-            return
-
-        width = max(120, canvas.winfo_width())
-        y = 4 - self.engine_scroll
-        for row in self.engine_rows:
-            height = self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
-            if y + height < 0:
-                y += height
+    def _thumbnail_path(self, thumb):
+        """Prefer the plugin's @2x sprite, falling back to the base image."""
+        for images_dir in (self.plugin_images_dir, self.images_dir):
+            if not images_dir:
                 continue
-            if y > canvas.winfo_height():
-                break
-
-            if row[0] == "header":
-                canvas.create_text(8, y + 2, anchor="nw", text=row[1],
-                                   fill="#7fb2dd", font=self.mono_font)
-                canvas.create_line(8, y + 21, width - 8, y + 21, fill="#444444")
-                y += height
-                continue
-
-            _, count, engine, photo = row
-            center_y = y + self.ENGINE_ROW_H // 2
-            if photo is not None:
-                canvas.create_image(86, center_y, image=photo, anchor="center")
-            else:
-                canvas.create_rectangle(6, y + 4, 166, y + self.ENGINE_ROW_H - 4,
-                                        fill="#3a3a3a", outline="#555555")
-
-            line1 = "{}x {}  ({})".format(count, engine["name"], engine["faction"])
-            line2 = "weight {:>3}   thrust {:>7.2f}   turn {:>7.2f}".format(
-                engine["weight"], engine["thrust"], engine["turn"])
-            canvas.create_text(176, y + 66, anchor="nw", text=line1, fill=self.fg)
-            canvas.create_text(176, y + 88, anchor="nw", text=line2, fill="#b0b0b0")
-
-            y += height
-
-    def _on_engine_wheel(self, event):
-        if not self.engine_rows:
-            return
-        step = -1 if event.delta > 0 else 1
-        self.engine_scroll += step * 40
-        self._clamp_engine_scroll()
-        self.redraw_engines()
-        self._update_engine_scrollbar()
-
-    def _on_engine_scrollbar(self, action, *args):
-        if not self.engine_rows:
-            return
-        total = self._max_engine_scroll()
-        if action == "moveto":
-            self.engine_scroll = int(float(args[0]) * total)
-        elif action == "scroll":
-            amount = int(args[1])
-            if args[2] == "units":
-                self.engine_scroll += amount * 40
-            else:
-                self.engine_scroll += amount * max(1, self.engine_canvas.winfo_height())
-        self._clamp_engine_scroll()
-        self.redraw_engines()
-        self._update_engine_scrollbar()
-
-    def _engine_content_height(self):
-        return sum(self.ENGINE_HEADER_H if row[0] == "header" else self.ENGINE_ROW_H
-                   for row in self.engine_rows)
-
-    def _max_engine_scroll(self):
-        return max(0, self._engine_content_height() - self.engine_canvas.winfo_height())
-
-    def _clamp_engine_scroll(self):
-        self.engine_scroll = max(0, min(self.engine_scroll, self._max_engine_scroll()))
-
-    def _update_engine_scrollbar(self):
-        total = self._max_engine_scroll()
-        if total <= 0:
-            self.engine_scrollbar.set(0.0, 1.0)
-            return
-        first = self.engine_scroll / total
-        last = (self.engine_scroll + self.engine_canvas.winfo_height()) / total
-        self.engine_scrollbar.set(first, min(1.0, last))
-
-    # -------------------------------------------------------------- events
-    def _on_click(self, event):
-        if not self.results:
-            return
-        index = int((event.y + self.scroll) // self.ROW_H)
-        if 0 <= index < len(self.results):
-            self.selected = index
-            self.redraw()
-            self._show_engines(index)
-
-    def _on_up(self, event):
-        self._move_selection(-1)
-
-    def _on_down(self, event):
-        self._move_selection(1)
-
-    def _move_selection(self, delta):
-        if not self.results:
-            return
-        self.selected = max(0, min(len(self.results) - 1, self.selected + delta))
-        self._scroll_to_selected()
-        self.redraw()
-        self._update_scrollbar()
-        self._show_engines(self.selected)
-
-    def _scroll_to_selected(self):
-        if not self.results or self.selected < 0:
-            return
-        # Center the selected row in the visible area (clamped to the list).
-        height = self.canvas.winfo_height()
-        row_center = 6 + self.selected * self.ROW_H + self.ROW_H / 2.0
-        self.scroll = int(row_center - height / 2.0)
-        self.scroll = max(0, min(self.scroll, self._max_scroll()))
-
-    def _on_wheel(self, event):
-        if not self.results:
-            return
-        step = -1 if event.delta > 0 else 1
-        self.scroll += step * self.ROW_H
-        self._clamp_scroll()
-        self.redraw()
-        self._update_scrollbar()
-
-    def _on_scrollbar(self, action, *args):
-        if not self.results:
-            return
-        total = self._max_scroll()
-        if action == "moveto":
-            self.scroll = int(float(args[0]) * total)
-        elif action == "scroll":
-            amount = int(args[1])
-            if args[2] == "units":
-                self.scroll += amount * self.ROW_H
-            else:
-                self.scroll += amount * max(1, self.canvas.winfo_height())
-        self._clamp_scroll()
-        self.redraw()
-        self._update_scrollbar()
-
-    def _max_scroll(self):
-        visible = self.canvas.winfo_height()
-        content = len(self.results) * self.ROW_H
-        return max(0, content - visible)
-
-    def _clamp_scroll(self):
-        self.scroll = max(0, min(self.scroll, self._max_scroll()))
-
-    def _update_scrollbar(self):
-        total = self._max_scroll()
-        if total <= 0:
-            self.scrollbar.set(0.0, 1.0)
-            return
-        first = self.scroll / total
-        last = (self.scroll + self.canvas.winfo_height()) / total
-        self.scrollbar.set(first, min(1.0, last))
+            marker = "@2x" if images_dir == self.plugin_images_dir else ""
+            path = os.path.join(images_dir, thumb + marker + ".png")
+            if os.path.isfile(path):
+                return path
+        return None

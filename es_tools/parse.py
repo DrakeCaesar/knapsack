@@ -56,6 +56,13 @@ def number(attrs, key):
     return value if isinstance(value, float) else 0.0
 
 
+def append_description(attrs, value):
+    """Append one description line, joining paragraphs with a newline."""
+    text = value.strip() if isinstance(value, str) else str(value)
+    previous = attrs.get("description", "")
+    attrs["description"] = text if not previous else previous + "\n" + text
+
+
 def data_files(data_dir):
     """Yield the data files to scan, skipping the deprecated folder."""
     for root, dirs, files in os.walk(data_dir):
@@ -84,6 +91,7 @@ def parse_blocks(data_dir):
                 base = tokens[1]
                 variant = tokens[2] if len(tokens) >= 3 else None
                 ops = []
+                descriptions = []
                 i += 1
 
                 # Consume this ship's block (all lines indented under it).
@@ -92,6 +100,10 @@ def parse_blocks(data_dir):
                     inner = tokenize(lines[i])
 
                     if inner_level == 1 and inner:
+                        if inner[0] == "description" and len(inner) >= 2:
+                            descriptions.append(inner[1].strip())
+                            i += 1
+                            continue
                         if inner[0] in ("sprite", "thumbnail", "display name", "plural") and len(inner) >= 2:
                             ops.append(("set", {inner[0]: inner[1]}))
                             i += 1
@@ -122,6 +134,9 @@ def parse_blocks(data_dir):
                             continue
 
                     i += 1
+
+                if descriptions:
+                    ops.append(("set", {"description": "\n".join(descriptions)}))
 
                 blocks.append({"base": base, "variant": variant, "ops": ops})
             else:
@@ -165,7 +180,10 @@ def parse_weapon_outfits(data_dir):
                             i += 1
                         continue
                     if depth == 1 and len(fields) >= 2:
-                        attrs[fields[0]] = parse_value(fields[1])
+                        if fields[0] == "description":
+                            append_description(attrs, fields[1])
+                        else:
+                            attrs[fields[0]] = parse_value(fields[1])
                     i += 1
 
                 attrs["weapon"] = weapon

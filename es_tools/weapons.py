@@ -1,19 +1,19 @@
 """The Weapons tab: comparison tables grouped first by mount, then by type.
 
-The outer notebook has one tab per mount (Guns, Turrets, Secondary Weapons);
-each mount tab holds an inner notebook with one tab per weapon type (beams,
-projectiles, missiles, ...) that actually appears for that mount. The weapon
-data is parsed once up front and shared with every table.
+The outer tab widget has one tab per mount (Guns, Turrets, Secondary Weapons);
+each mount tab holds an inner tab widget with one tab per weapon type that
+actually appears for that mount. The weapon data is parsed once up front and
+shared with every table.
 """
 
 import threading
-import tkinter as tk
-from tkinter import ttk
+
+from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 
 from .outfits import WEAPON_COLUMNS, build_weapon_rows, weapon_mount_types
 from .parse import parse_weapon_outfits
 from .paths import DATA_DIR
-from .table import OutfitTableApp
+from .table import OutfitTableApp, _SignalBridge
 
 
 class WeaponCategoryTable(OutfitTableApp):
@@ -46,18 +46,13 @@ class WeaponCategoryTable(OutfitTableApp):
             if outfits is None:
                 outfits = parse_weapon_outfits(self.data_dir)
             rows = build_weapon_rows(outfits, self.WEAPON_TYPES, self.WEAPON_MOUNT)
-            self.root.after(0, self._on_data_loaded, outfits, rows)
+            self._bridge.loaded.emit((outfits, rows))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._load_error, str(exc))
+            self._bridge.failed.emit(str(exc))
 
 
-class WeaponsApp(ttk.Frame):
-    """Tab comparing weapons, split by mount and then by weapon type.
-
-    Outer notebook: Guns / Turrets / Secondary Weapons.
-    Inner notebook (per mount): Beams / Projectiles / Missiles / Anti-Missile /
-    Tractor Beams, but only for types that actually exist in that mount.
-    """
+class WeaponsApp(QWidget):
+    """Tab comparing weapons, split by mount and then by weapon type."""
 
     MOUNTS = [
         ("Guns", "Guns"),
@@ -73,49 +68,50 @@ class WeaponsApp(ttk.Frame):
         ("Tractor Beams", ("Tractor Beam",)),
     ]
 
-    def __init__(self, master):
-        super().__init__(master)
-        self.root = master.winfo_toplevel()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.apps = {}
-        self.status_var = tk.StringVar(value="Loading weapons...")
-        ttk.Label(self, textvariable=self.status_var, padding=12).pack()
+        self._bridge = _SignalBridge(self)
+        self._bridge.loaded.connect(self._build_ui)
+        self._bridge.failed.connect(self._load_error)
+
+        layout = QVBoxLayout(self)
+        self.status_label = QLabel("Loading weapons...")
+        layout.addWidget(self.status_label, 0)
+
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _load_worker(self):
         try:
             outfits = parse_weapon_outfits(DATA_DIR)
             groups = weapon_mount_types(outfits)
-            self.root.after(0, self._build_ui, outfits, groups)
+            self._bridge.loaded.emit((outfits, groups))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._load_error, str(exc))
+            self._bridge.failed.emit(str(exc))
 
     def _load_error(self, message):
-        self.status_var.set("Error: {}".format(message))
+        self.status_label.setText("Error: {}".format(message))
 
-    def _build_ui(self, outfits, groups):
-        for child in self.winfo_children():
-            child.destroy()
+    def _build_ui(self, payload):
+        outfits, groups = payload
+        self.status_label.hide()
 
         types_by_mount = {}
         for mount, wtype in groups:
             types_by_mount.setdefault(mount, []).append(wtype)
 
-        outer = ttk.Notebook(self)
-        outer.pack(fill=tk.BOTH, expand=True)
+        outer = QTabWidget()
+        self.layout().addWidget(outer, 1)
 
         for mount_label, mount in self.MOUNTS:
             present = types_by_mount.get(mount)
             if not present:
                 continue
 
-            mount_tab = ttk.Frame(outer)
-            inner = ttk.Notebook(mount_tab)
-            inner.pack(fill=tk.BOTH, expand=True)
-
+            inner = QTabWidget()
             for type_label, type_tuple in self.TYPES:
                 if type_tuple[0] not in present:
                     continue
-                type_tab = ttk.Frame(inner)
                 slug = "{}_{}".format(mount_label.lower().replace(" ", "_"),
                                       type_label.lower().replace(" ", "_"))
                 cls = type("Weapons" + mount_label.replace(" ", "")
@@ -126,9 +122,7 @@ class WeaponsApp(ttk.Frame):
                             "WEAPON_OUTFITS": outfits,
                             "CONFIG_FILENAME": ".endless_sky_weapons_"
                             + slug + ".json"})
-                app = cls(type_tab)
-                app.pack(fill=tk.BOTH, expand=True)
-                inner.add(type_tab, text=type_label)
-                self.apps[slug] = app
+                inner.addTab(cls(), type_label)
+                self.apps[slug] = inner.widget(inner.count() - 1)
 
-            outer.add(mount_tab, text=mount_label)
+            outer.addTab(inner, mount_label)

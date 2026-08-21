@@ -1,21 +1,184 @@
-"""The reusable heatmap table: a virtualized canvas table for comparing
-outfit stats with per-column green-to-red coloring and auto-sized widths.
+"""Qt heatmap table widget for comparing outfit stats.
+
+Replaces the old tkinter canvas table with a QTableView + model + delegate,
+so Qt only paints the visible cells and provides native scrolling, sorting,
+and selection. The row data and column definitions are still provided by the
+pure-Python data modules.
 """
 
 import json
 import os
 import threading
-import tkinter as tk
-from tkinter import ttk
+import time
+
+from PySide6.QtCore import (QAbstractTableModel, QModelIndex, QObject, QTimer,
+                            Qt, Signal)
+from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
+                               QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QMenu, QScrollArea, QSplitter, QStyle,
+                               QStyledItemDelegate, QTableView, QVBoxLayout,
+                               QWidget)
 
 import engine_knapsack as ek
 
+from .config import PRELOAD_IMAGES
 from .images import find_plugin_images_dir
 from .paths import DATA_DIR, IMAGES_DIR
-from .theme import BG, FG, ENTRY_BG, SELECT_BG
+from .theme import BG, ENTRY_BG, FG, SELECT_BG
+
+# Custom role used by the delegate to fetch the raw (unformatted) cell value.
+RAW_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
 
-class OutfitTableApp(ttk.Frame):
+def heat_color(t):
+    """Interpolate a dark green -> orange -> red heatmap color."""
+    stops = ((24, 90, 33), (190, 100, 0), (170, 25, 25))
+    t = max(0.0, min(1.0, t))
+    if t < 0.5:
+        u = t * 2.0
+        a, b = stops[0], stops[1]
+    else:
+        u = (t - 0.5) * 2.0
+        a, b = stops[1], stops[2]
+    return QColor(int(round(a[0] + (b[0] - a[0]) * u)),
+                  int(round(a[1] + (b[1] - a[1]) * u)),
+                  int(round(a[2] + (b[2] - a[2]) * u)))
+
+
+def cell_color(value, min_v, max_v, reverse=False):
+    """Map a value within [min_v, max_v] to its heatmap color."""
+    span = max_v - min_v
+    t = 0.5 if span == 0 else (value - min_v) / span
+    if reverse:
+        t = 1.0 - t
+    return heat_color(t)
+
+
+class _SignalBridge(QObject):
+    """Thread-safe bridge: worker threads emit these to reach the UI thread."""
+
+    loaded = Signal(object)
+    failed = Signal(str)
+
+
+class OutfitTableModel(QAbstractTableModel):
+    """Tabular model over a list of row dicts plus visible column defs."""
+
+    def __init__(self, table):
+        super().__init__(table)
+        self.table = table
+        self.rows = []
+        self.columns = []
+        self.scales = {}
+        self.decimals = {}
+
+    def set_rows(self, rows):
+        """Replace all rows and refresh column/scaling metadata."""
+        self.beginResetModel()
+        self.rows = rows
+        self._sync_meta()
+        self.endResetModel()
+
+    def _sync_meta(self):
+        self.columns = list(self.table._visible_columns())
+        self.scales = dict(self.table._scales)
+        self.decimals = dict(self.table._decimals)
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.columns)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        row = self.rows[index.row()]
+        _, key, _ = self.columns[index.column()]
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            return self.table._format_cell(row, key, self.decimals.get(key, 0))
+        if role == RAW_ROLE:
+            return row[key]
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            anchor = self.columns[index.column()][2]
+            if anchor == "e":
+                return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if (orientation == Qt.Orientation.Horizontal
+                and role == Qt.ItemDataRole.DisplayRole
+                and 0 <= section < len(self.columns)):
+            return self.columns[section][0]
+        return None
+
+    def sort(self, column, order=Qt.SortOrder.AscendingOrder):
+        if column < 0 or column >= len(self.columns):
+            return
+        self.table._sort_key = self.columns[column][1]
+        self.table._sort_reverse = (order == Qt.SortOrder.DescendingOrder)
+
+        # Remember which item is selected so we can keep it selected after
+        # the rows are reordered (instead of keeping the same row index,
+        # which would now hold a different item).
+        view = self.table.view
+        selected_row = None
+        index = view.currentIndex()
+        if index.isValid() and 0 <= index.row() < len(self.rows):
+            selected_row = self.rows[index.row()]
+
+        self.layoutAboutToBeChanged.emit()
+        # Mutate in place so self.rows (the model) and self.table.rows stay
+        # the same list; otherwise the preview would read stale positions.
+        self.rows[:] = self.table._sorted_rows(self.rows)
+        self.layoutChanged.emit()
+
+        if selected_row is not None:
+            for row, candidate in enumerate(self.rows):
+                if candidate is selected_row:
+                    view.setCurrentIndex(self.index(row, 0))
+                    break
+
+
+class HeatmapDelegate(QStyledItemDelegate):
+    """Paints each cell with its heatmap color and the formatted text."""
+
+    def paint(self, painter, option, index):
+        model = index.model()
+        if not isinstance(model, OutfitTableModel):
+            super().paint(painter, option, index)
+            return
+
+        key = model.columns[index.column()][1]
+        value = model.data(index, RAW_ROLE)
+        scales = model.scales
+
+        painter.save()
+
+        if key in scales and isinstance(value, (int, float)):
+            color = cell_color(value, *scales[key],
+                               reverse=(key in model.table.reversed_keys))
+        else:
+            color = QColor(ENTRY_BG)
+        painter.fillRect(option.rect, color)
+
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        if selected:
+            overlay = QColor(SELECT_BG)
+            overlay.setAlpha(150)
+            painter.fillRect(option.rect, overlay)
+
+        text = model.data(index, Qt.ItemDataRole.DisplayRole) or ""
+        align = model.data(index, Qt.ItemDataRole.TextAlignmentRole)
+        painter.setPen(QColor("#ffffff") if selected else QColor(FG))
+        painter.drawText(option.rect.adjusted(6, 0, -6, 0),
+                         Qt.AlignmentFlag(align), text)
+        painter.restore()
+
+
+class OutfitTableApp(QWidget):
     """Reusable heatmap table for comparing outfit stats."""
 
     COLUMNS = []
@@ -34,19 +197,18 @@ class OutfitTableApp(ttk.Frame):
     HIDE_ZERO_COLUMNS = False
 
     ROW_H = 24
-    HEADER_H = 26
     # Extra total horizontal padding added when auto-sizing column widths; it
-    # is split evenly on either side of the widest cell text. The same amount
-    # is used to inset the text when drawing it, so the text fills the cell.
+    # is split evenly on either side of the widest cell text.
     CELL_PADDING = 16
 
-    def __init__(self, master):
-        super().__init__(master)
-        self.root = master.winfo_toplevel()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._sort_key = self.DEFAULT_SORT_KEY
+        self._sort_reverse = self.DEFAULT_SORT_REVERSE
 
         self.config_path = os.path.join(os.path.expanduser("~"),
                                         self.CONFIG_FILENAME)
-        self._load_config()
+        self.config = self._load_config()
 
         self.data_dir = DATA_DIR
         self.images_dir = IMAGES_DIR
@@ -59,150 +221,140 @@ class OutfitTableApp(ttk.Frame):
         self.rows = []
         self.factions = []
         self.faction_vars = {}
-        self._photo_cache = {}
+        self._pixmap_cache = {}
         self._path_cache = {}
-        self._current_photo = None
-        self._current_row = None
         self.show_all_var = None
-        self._sort_key = self.DEFAULT_SORT_KEY
-        self._sort_reverse = self.DEFAULT_SORT_REVERSE
-        self.preview_size = 240
-        self._preload_paths = []
-        self._preload_index = 0
-        self._preload_attempted = set()
         self.numeric_keys = [key for _, key, _ in self.COLUMNS
                              if key not in self.TEXT_KEYS]
         self.reversed_keys = self.REVERSED_KEYS
-        self.selected = -1
-        self.y_offset = 0
-        self.x_offset = 0
-        self._col_layout = []
-        self._content_width = 0
         self._scales = {}
         self._decimals = {}
-        # Hidden canvas used to measure the exact rendered text width. A plain
-        # tkfont.Font() does not match the canvas default font, which made the
-        # auto-sized columns wider than the text they contain.
-        self._measure_canvas = tk.Canvas(self, width=1, height=1,
-                                         highlightthickness=0)
-        self._measure_cache = {}
-        self._redraw_scheduled = False
-        self._configure_after_id = None
+        self._preload_timer = None
+        self._preload_paths = []
+        self._preload_index = 0
+
+        self._bridge = _SignalBridge(self)
+        self._bridge.loaded.connect(self._on_data_loaded)
+        self._bridge.failed.connect(self._load_error)
 
         self._build_ui()
         self._start_loading()
 
+    # ------------------------------------------------------------ persistence
     def _load_config(self):
-        self.config = {}
         try:
             with open(self.config_path, "r", encoding="utf-8") as handle:
-                self.config = json.load(handle)
+                return json.load(handle)
         except (OSError, ValueError):
-            self.config = {}
+            return {}
 
     def _save_config(self):
         data = {}
-        if self.HAS_FACTIONS:
-            if self.faction_vars:
-                data["factions"] = [name for name, var in self.faction_vars.items()
-                                    if var.get()]
-            elif "factions" in self.config:
-                data["factions"] = self.config["factions"]
+        if self.HAS_FACTIONS and self.faction_vars:
+            data["factions"] = [name for name, cb in self.faction_vars.items()
+                                if cb.isChecked()]
         if self.HAS_SHOW_ALL and self.show_all_var is not None:
-            data["show_all"] = bool(self.show_all_var.get())
+            data["show_all"] = bool(self.show_all_var.isChecked())
         try:
             with open(self.config_path, "w", encoding="utf-8") as handle:
                 json.dump(data, handle)
         except OSError:
             pass
 
-    def _on_close(self):
-        self._save_config()
-
+    # -------------------------------------------------------------------- UI
     def _build_ui(self):
-        bar = ttk.Frame(self, padding=8)
-        bar.pack(side=tk.TOP, fill=tk.X)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(6)
 
-        self.status_var = tk.StringVar(value="")
-        ttk.Label(bar, textvariable=self.status_var).pack(side=tk.LEFT, padx=8)
+        top = QHBoxLayout()
+        self.status_label = QLabel("")
+        top.addWidget(self.status_label)
+        top.addStretch(1)
+        self._build_extra_bar(top)
+        root.addLayout(top)
 
-        self._build_extra_bar(bar)
         if self.HAS_FACTIONS:
-            self._build_faction_bar()
+            self.faction_widget = QWidget()
+            self.faction_layout = QGridLayout(self.faction_widget)
+            self.faction_layout.setContentsMargins(0, 0, 0, 0)
+            self.faction_layout.setSpacing(2)
+            root.addWidget(self.faction_widget, 0,
+                           Qt.AlignmentFlag.AlignLeft)
 
-        paned = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
-        paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(splitter, 1)
 
-        # Left: canvas heatmap table of outfits.
-        table_frame = ttk.Frame(paned)
-        self.table_canvas = tk.Canvas(table_frame, background=ENTRY_BG,
-                                      highlightthickness=0)
-        self.y_scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL,
-                                      command=self._on_y_scrollbar)
-        self.x_scroll = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL,
-                                      command=self._on_x_scrollbar)
+        # Left: the heatmap table.
+        self.view = QTableView()
+        self.model = OutfitTableModel(self)
+        self.view.setModel(self.model)
+        self.view.setItemDelegate(HeatmapDelegate(self.view))
+        self.view.setSortingEnabled(True)
+        self.view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.view.setShowGrid(False)
+        self.view.verticalHeader().setVisible(False)
+        self.view.verticalHeader().setDefaultSectionSize(self.ROW_H)
+        self.view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(self._on_context_menu)
+        self.view.selectionModel().currentRowChanged.connect(
+            self._on_current_row_changed)
+        splitter.addWidget(self.view)
 
-        self.table_canvas.grid(row=0, column=0, sticky="nsew")
-        self.y_scroll.grid(row=0, column=1, sticky="ns")
-        self.x_scroll.grid(row=1, column=0, sticky="ew")
-        table_frame.rowconfigure(0, weight=1)
-        table_frame.columnconfigure(0, weight=1)
-        paned.add(table_frame, weight=3)
-
-        # Column widths are derived from content (widest text, header
-        # included). Size the columns now so the table is drawable before the
-        # data finishes loading; _refresh_rows() re-sizes them from real rows.
-        self._compute_column_widths()
-
-        self.table_canvas.bind("<Configure>", self._on_table_configure)
-        self.table_canvas.bind("<MouseWheel>", self._on_wheel)
-        self.table_canvas.bind("<Button-1>", self._on_click)
-        self.table_canvas.bind("<Button-3>", self._on_right_click)
-        self.table_canvas.bind("<Up>", lambda event: self._move_selection(-1))
-        self.table_canvas.bind("<Down>", lambda event: self._move_selection(1))
-        self.table_canvas.bind("<Prior>",
-                               lambda event: self._move_selection(-self._page_size()))
-        self.table_canvas.bind("<Next>",
-                               lambda event: self._move_selection(self._page_size()))
-
-        # Right: outfit thumbnail preview.
-        preview = ttk.Frame(paned, padding=6)
-        self.name_var = tk.StringVar(value="")
-        ttk.Label(preview, textvariable=self.name_var,
-                  font=("TkDefaultFont", 11, "bold")).pack(side=tk.TOP,
-                                                           anchor="w")
-
-        self.canvas = tk.Canvas(preview, background=BG, width=260,
-                                highlightthickness=1,
-                                highlightbackground="#333333")
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=6)
-
-        self.stats_var = tk.StringVar(value="")
-        ttk.Label(preview, textvariable=self.stats_var,
-                  justify=tk.LEFT).pack(side=tk.TOP, anchor="w")
-        paned.add(preview, weight=2)
-
-        self.canvas.bind("<Configure>", lambda event: self._redraw_preview())
-
-        self.context_menu = tk.Menu(self.table_canvas, tearoff=0,
-                                    background=ENTRY_BG, foreground=FG,
-                                    activebackground=SELECT_BG,
-                                    activeforeground="#ffffff")
-        self._build_context_menu(self.context_menu)
+        # Right: thumbnail + stats preview.
+        preview = QWidget()
+        pv = QVBoxLayout(preview)
+        pv.setContentsMargins(6, 6, 6, 6)
+        pv.setSpacing(6)
+        self.name_label = QLabel("")
+        font = self.name_label.font()
+        font.setBold(True)
+        font.setPointSize(font.pointSize() + 1)
+        self.name_label.setFont(font)
+        pv.addWidget(self.name_label)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; }")
+        self.thumb_label = QLabel("")
+        self.thumb_label.setStyleSheet("border: 1px solid #777777;")
+        self.scroll_area.setWidget(self.thumb_label)
+        pv.addWidget(self.scroll_area, 1)
+        self.stats_label = QLabel("")
+        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignTop
+                                      | Qt.AlignmentFlag.AlignLeft)
+        self.stats_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        pv.addWidget(self.stats_label)
+        self.description_label = QLabel("")
+        self.description_label.setWordWrap(True)
+        self.description_label.setAlignment(Qt.AlignmentFlag.AlignTop
+                                            | Qt.AlignmentFlag.AlignLeft)
+        self.description_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.description_label.setStyleSheet("color: #b0b0b0;")
+        pv.addWidget(self.description_label)
+        splitter.addWidget(preview)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
 
     def _start_loading(self):
-        self.status_var.set("Loading {}s...".format(self.NOUN))
+        self.status_label.setText("Loading {}s...".format(self.NOUN))
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _load_worker(self):
         try:
             outfits = ek.parse_outfits(self.data_dir)
             rows = type(self).BUILDER(outfits)
-            self.root.after(0, self._on_data_loaded, outfits, rows)
+            self._bridge.loaded.emit((outfits, rows))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._load_error, str(exc))
+            self._bridge.failed.emit(str(exc))
 
-    def _on_data_loaded(self, outfits, rows):
+    def _on_data_loaded(self, payload):
+        outfits, rows = payload
         self.outfits = outfits
         self.all_rows = rows
         if self.HAS_FACTIONS:
@@ -210,32 +362,36 @@ class OutfitTableApp(ttk.Frame):
         self._refresh_rows()
 
     def _load_error(self, message):
-        self.status_var.set("Error: {}".format(message))
+        self.status_label.setText("Error: {}".format(message))
 
-    def _build_faction_bar(self):
-        self.checkbox_frame = ttk.Frame(self, padding=(8, 0, 8, 4))
-        self.checkbox_frame.pack(side=tk.TOP, fill=tk.X)
-
+    # ----------------------------------------------------------- faction bar
     def _build_faction_checkboxes(self, factions):
-        for child in self.checkbox_frame.winfo_children():
-            child.destroy()
+        while self.faction_layout.count():
+            item = self.faction_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
         self.factions = factions
         self.faction_vars = {}
+        saved = set(self.config["factions"]) if "factions" in self.config else None
 
-        if "factions" in self.config:
-            saved = set(self.config["factions"])
-        else:
-            saved = None
+        # Uniform column width based on the longest label, so the checkboxes
+        # are packed to the left with even spacing instead of stretching.
+        boxes = []
+        for name in factions:
+            box = QCheckBox(name)
+            box.setChecked(saved is None or name in saved)
+            box.toggled.connect(self._on_faction_toggled)
+            self.faction_vars[name] = box
+            boxes.append(box)
 
+        width = max((box.sizeHint().width() for box in boxes), default=0)
         columns = 6
-        for index, name in enumerate(factions):
-            var = tk.BooleanVar(value=(saved is None or name in saved))
-            var.trace_add("write", self._on_faction_toggled)
-            self.faction_vars[name] = var
-            check = ttk.Checkbutton(self.checkbox_frame, text=name, variable=var)
-            check.grid(row=index // columns, column=index % columns,
-                       sticky="w", padx=2, pady=1)
+        for index, box in enumerate(boxes):
+            box.setMinimumWidth(width)
+            self.faction_layout.addWidget(box, index // columns,
+                                          index % columns)
 
     def _on_faction_toggled(self, *args):
         self._save_config()
@@ -244,13 +400,15 @@ class OutfitTableApp(ttk.Frame):
     def _current_factions(self):
         if not self.factions:
             return None
-        checked = {name for name, var in self.faction_vars.items() if var.get()}
+        checked = {name for name, box in self.faction_vars.items()
+                   if box.isChecked()}
         if not checked:
             return set()
         if len(checked) == len(self.factions):
             return None
         return checked
 
+    # -------------------------------------------------------------- refresh
     def _refresh_rows(self):
         base = self._base_rows()
         filters = self._current_factions()
@@ -258,22 +416,76 @@ class OutfitTableApp(ttk.Frame):
             self.rows = list(base)
         else:
             self.rows = [row for row in base if row["faction"] in filters]
-        self._apply_sort()
+        self.rows = self._sorted_rows(self.rows)
         self._recompute_columns()
-        self._compute_column_widths()
+        self.model.set_rows(self.rows)
+        self._auto_size_columns()
         self._select_first()
         self._start_preload()
 
-    def _on_sort(self, key):
-        if self._sort_key == key:
-            self._sort_reverse = not self._sort_reverse
-        else:
-            self._sort_key = key
-            self._sort_reverse = key not in self.TEXT_KEYS
-        self._apply_sort()
-        self._select_first()
+    def _start_preload(self):
+        """Eagerly load every thumbnail when PRELOAD_IMAGES is enabled."""
+        if self._preload_timer is not None:
+            self._preload_timer.stop()
+            self._preload_timer = None
 
-    def _apply_sort(self):
+        if not PRELOAD_IMAGES:
+            self._update_preload_status()
+            return
+
+        paths = []
+        seen = set()
+        for row in self.rows:
+            path = self._row_image_path(row)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+        self._preload_paths = paths
+        self._preload_index = 0
+        self._update_preload_status()
+
+        if paths:
+            self._preload_timer = QTimer(self)
+            self._preload_timer.setInterval(0)
+            self._preload_timer.timeout.connect(self._preload_tick)
+            self._preload_timer.start()
+
+    def _preload_tick(self):
+        """Load a small batch of thumbnails, then yield to the event loop."""
+        start = time.monotonic()
+        while self._preload_index < len(self._preload_paths):
+            path = self._preload_paths[self._preload_index]
+            self._preload_index += 1
+            if path not in self._pixmap_cache:
+                self._load_pixmap(path)
+            if time.monotonic() - start > 0.012:
+                break
+        self._update_preload_status()
+        if self._preload_index >= len(self._preload_paths):
+            self._preload_timer.stop()
+            self._preload_timer = None
+
+    def _update_preload_status(self):
+        total = len(self.rows)
+        if total == 0:
+            self.status_label.setText("No {}s.".format(self.NOUN))
+            return
+        if not PRELOAD_IMAGES:
+            self.status_label.setText("{} {}s".format(total, self.NOUN))
+            return
+        loaded = 0
+        for row in self.rows:
+            path = self._row_image_path(row)
+            if path is None or path in self._pixmap_cache:
+                loaded += 1
+        if loaded >= total:
+            self.status_label.setText("{} {}s".format(total, self.NOUN))
+        else:
+            self.status_label.setText(
+                "{} / {} {}s loaded".format(loaded, total, self.NOUN))
+
+    def _sorted_rows(self, rows):
         key = self._sort_key
         reverse = self._sort_reverse
 
@@ -281,72 +493,25 @@ class OutfitTableApp(ttk.Frame):
             value = row.get(key, "")
             return value.lower() if isinstance(value, str) else value
 
-        self.rows.sort(key=sort_value, reverse=reverse)
+        return sorted(rows, key=sort_value, reverse=reverse)
 
     def _select_first(self):
         if self.rows:
-            self.selected = 0
-            self._show_preview(self.rows[0])
+            self.view.setCurrentIndex(self.model.index(0, 0))
         else:
-            self.selected = -1
-            self._current_row = None
-            self.name_var.set("")
-            self.stats_var.set("")
-            self._redraw_preview()
-        self.y_offset = 0
-        self._update_scrollbars()
-        self._redraw_table()
+            self.name_label.setText("")
+            self.stats_label.setText("")
+            self.description_label.setText("")
+            self.description_label.hide()
+            self.thumb_label.clear()
 
-    def _select(self, index):
-        if index < 0 or index >= len(self.rows):
-            return
-        self.selected = index
-        self.table_canvas.focus_set()
-        self._show_preview(self.rows[index])
-        self._redraw_table()
+    def _on_current_row_changed(self, current, previous):
+        row = current.row()
+        rows = self.model.rows
+        if 0 <= row < len(rows):
+            self._show_preview(rows[row])
 
-    def _move_selection(self, delta):
-        if not self.rows:
-            return
-        new = max(0, min(len(self.rows) - 1, self.selected + delta))
-        if new == self.selected:
-            return
-        self._select(new)
-        row_top = self.HEADER_H + new * self.ROW_H
-        row_bottom = row_top + self.ROW_H
-        view_bottom = self.y_offset + self.table_canvas.winfo_height()
-        if row_top < self.y_offset + self.HEADER_H:
-            self.y_offset = max(0, row_top - self.HEADER_H)
-        elif row_bottom > view_bottom:
-            self.y_offset = min(self._max_y_offset(),
-                                row_bottom - self.table_canvas.winfo_height())
-        self._update_scrollbars()
-        self._redraw_table()
-
-    def _page_size(self):
-        height = self.table_canvas.winfo_height() - self.HEADER_H
-        return max(1, height // self.ROW_H)
-
-    def _heat_color(self, t):
-        """Interpolate a dark green -> orange -> red heatmap color."""
-        stops = ((24, 90, 33), (190, 100, 0), (170, 25, 25))
-        t = max(0.0, min(1.0, t))
-        if t < 0.5:
-            u = t * 2.0
-            a, b = stops[0], stops[1]
-        else:
-            u = (t - 0.5) * 2.0
-            a, b = stops[1], stops[2]
-        rgb = tuple(int(round(a[i] + (b[i] - a[i]) * u)) for i in range(3))
-        return "#{:02x}{:02x}{:02x}".format(*rgb)
-
-    def _cell_color(self, value, min_v, max_v, reverse=False):
-        span = max_v - min_v
-        t = 0.5 if span == 0 else (value - min_v) / span
-        if reverse:
-            t = 1.0 - t
-        return self._heat_color(t)
-
+    # ------------------------------------------------------------- columns
     def _header_for(self, key):
         for header, k, _ in self.COLUMNS:
             if k == key:
@@ -354,7 +519,6 @@ class OutfitTableApp(ttk.Frame):
         return key
 
     def _decimal_places(self, value):
-        """Return the number of meaningful decimal places in a numeric value."""
         if not isinstance(value, float):
             return 0
         if value == int(value):
@@ -371,7 +535,6 @@ class OutfitTableApp(ttk.Frame):
         return format(value, ",.{0}f".format(decimals))
 
     def _recompute_columns(self):
-        """Cache per-column scales and decimal places from the current rows."""
         self._decimals = {}
         self._scales = {}
         for key in self.numeric_keys:
@@ -386,12 +549,6 @@ class OutfitTableApp(ttk.Frame):
             self._scales[key] = (min(values), max(values))
 
     def _visible_columns(self):
-        """Return the columns to display for the current rows.
-
-        When HIDE_ZERO_COLUMNS is set, numeric columns that are all zero for
-        every row are dropped (e.g. a damage type no weapon of this group
-        deals).
-        """
         if not self.HIDE_ZERO_COLUMNS:
             return self.COLUMNS
         hidden = set()
@@ -401,241 +558,31 @@ class OutfitTableApp(ttk.Frame):
                 hidden.add(key)
         return [column for column in self.COLUMNS if column[1] not in hidden]
 
-    def _compute_column_widths(self):
-        """Auto-size every column to its widest text.
-
-        Widths are derived purely from content: the exact rendered width of the
-        longest formatted cell in each column, including the header text, so no
-        width is ever declared. The total content width is the sum of all
-        column widths.
-        """
-        decimals = self._decimals
-
-        x = 0
-        layout = []
-        for header, key, anchor in self._visible_columns():
-            longest = self._measure_text(header)
+    def _auto_size_columns(self):
+        metrics = self.view.fontMetrics()
+        header = self.view.horizontalHeader()
+        for column, (column_header, key, _anchor) in enumerate(self.model.columns):
+            longest = metrics.horizontalAdvance(column_header)
             for row in self.rows:
-                text = self._format_cell(row, key, decimals.get(key, 0))
-                longest = max(longest, self._measure_text(text))
-            # Same padding on both sides of the text; CELL_PADDING is the total
-            # added to the width, split evenly when the text is drawn.
-            width = longest + self.CELL_PADDING
-            layout.append((key, x, width, anchor))
-            x += width
-        self._col_layout = layout
-        self._content_width = x
+                text = self._format_cell(row, key, self._decimals.get(key, 0))
+                longest = max(longest, metrics.horizontalAdvance(text))
+            self.view.setColumnWidth(column, longest + self.CELL_PADDING)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
-    def _measure_text(self, text):
-        """Return the exact rendered pixel width of ``text``.
-
-        Uses a hidden canvas with the same default font as the table, so the
-        width matches what is actually drawn (font.measure() does not).
-        """
-        width = self._measure_cache.get(text)
-        if width is not None:
-            return width
-        canvas = self._measure_canvas
-        item = canvas.create_text(0, 0, anchor="nw", text=text)
-        x1, _, x2, _ = canvas.bbox(item)
-        canvas.delete(item)
-        width = x2 - x1
-        self._measure_cache[text] = width
-        return width
-
-    def _redraw_table(self):
-        canvas = self.table_canvas
-        canvas.delete("all")
-        if not self.rows:
-            return
-
-        width = canvas.winfo_width()
-        height = canvas.winfo_height()
-        if width <= 1 or height <= 1:
-            return
-
-        # Each numeric column is scaled independently from green to red, and
-        # formatted with enough decimal places to keep its values aligned.
-        scales = self._scales
-        decimals = self._decimals
-
-        # Half the column padding goes on each side of the text, matching the
-        # width calculation so the text fills the cell exactly.
-        inset = self.CELL_PADDING / 2.0
-
-        first = max(0, int(self.y_offset // self.ROW_H))
-        last = min(len(self.rows),
-                   int((self.y_offset + height - self.HEADER_H) // self.ROW_H) + 2)
-        for index in range(first, last):
-            y0 = self.HEADER_H + index * self.ROW_H - self.y_offset
-            y1 = y0 + self.ROW_H
-            selected = index == self.selected
-            for key, x, col_w, anchor in self._col_layout:
-                x0 = x - self.x_offset
-                x1 = x + col_w - self.x_offset
-                if x1 < 0 or x0 > width:
-                    continue
-                if key in scales:
-                    color = self._cell_color(self.rows[index][key],
-                                             *scales[key],
-                                             reverse=(key in self.reversed_keys))
-                    canvas.create_rectangle(x0, y0, x1 + 1, y1,
-                                            fill=color, outline="")
-                text_x = x1 - inset if anchor == "e" else x0 + inset
-                text_fill = "#ffffff" if selected else FG
-                canvas.create_text(text_x, y0 + self.ROW_H // 2,
-                                   anchor=anchor,
-                                   text=self._format_cell(self.rows[index], key,
-                                                          decimals.get(key, 0)),
-                                   fill=text_fill)
-            if selected:
-                canvas.create_rectangle(1, y0 + 1, width - 1, y1 - 1,
-                                        fill="", outline=SELECT_BG, width=2)
-
-        # Header row is drawn last so scrolled cells never cover it.
-        for key, x, col_w, anchor in self._col_layout:
-            x0 = x - self.x_offset
-            x1 = x + col_w - self.x_offset
-            if x1 < 0 or x0 > width:
-                continue
-            canvas.create_rectangle(x0, 0, x1, self.HEADER_H,
-                                    fill="#2d2d2d", outline="#111111")
-            text_x = x1 - inset if anchor == "e" else x0 + inset
-            canvas.create_text(text_x, self.HEADER_H // 2,
-                               anchor=anchor, text=self._header_for(key),
-                               fill=FG)
-
-    def _column_at(self, x):
-        for key, col_x, col_w, _ in self._col_layout:
-            if col_x <= x < col_x + col_w:
-                return key
-        return None
-
-    def _on_click(self, event):
-        if not self.rows:
-            return
-        if event.y < self.HEADER_H:
-            key = self._column_at(event.x + self.x_offset)
-            if key:
-                self._on_sort(key)
-            return
-        row_index = int((event.y + self.y_offset - self.HEADER_H) // self.ROW_H)
-        if 0 <= row_index < len(self.rows):
-            self._select(row_index)
-
-    def _on_wheel(self, event):
-        if event.state & 0x0001:  # Shift held: scroll horizontally.
-            self.x_offset -= (1 if event.delta > 0 else -1) * 40
-        else:
-            self.y_offset -= (1 if event.delta > 0 else -1) * self.ROW_H
-        self._clamp_offsets()
-        self._update_scrollbars()
-        self._schedule_redraw()
-
-    def _on_y_scrollbar(self, action, *args):
-        content = self._content_height()
-        if action == "moveto":
-            self.y_offset = int(float(args[0]) * content)
-        elif action == "scroll":
-            amount = int(args[1])
-            if args[2] == "units":
-                self.y_offset += amount * self.ROW_H
-            else:
-                self.y_offset += amount * max(1, self.table_canvas.winfo_height())
-        self._clamp_offsets()
-        self._update_scrollbars()
-        self._schedule_redraw()
-
-    def _on_x_scrollbar(self, action, *args):
-        content = self._content_width
-        if action == "moveto":
-            self.x_offset = int(float(args[0]) * content)
-        elif action == "scroll":
-            amount = int(args[1])
-            if args[2] == "units":
-                self.x_offset += amount * 40
-            else:
-                self.x_offset += amount * max(1, self.table_canvas.winfo_width())
-        self._clamp_offsets()
-        self._update_scrollbars()
-        self._schedule_redraw()
-
-    def _max_y_offset(self):
-        return max(0, self.HEADER_H + len(self.rows) * self.ROW_H
-                   - self.table_canvas.winfo_height())
-
-    def _max_x_offset(self):
-        return max(0, self._content_width - self.table_canvas.winfo_width())
-
-    def _clamp_offsets(self):
-        self.y_offset = max(0, min(self.y_offset, self._max_y_offset()))
-        self.x_offset = max(0, min(self.x_offset, self._max_x_offset()))
-
-    def _update_scrollbars(self):
-        viewport_h = max(1, self.table_canvas.winfo_height())
-        content_h = self._content_height()
-        if content_h <= viewport_h:
-            self.y_scroll.set(0.0, 1.0)
-        else:
-            first = self.y_offset / content_h
-            last = (self.y_offset + viewport_h) / content_h
-            self.y_scroll.set(first, min(1.0, last))
-
-        viewport_w = max(1, self.table_canvas.winfo_width())
-        content_w = self._content_width
-        if content_w <= viewport_w:
-            self.x_scroll.set(0.0, 1.0)
-        else:
-            first = self.x_offset / content_w
-            last = (self.x_offset + viewport_w) / content_w
-            self.x_scroll.set(first, min(1.0, last))
-
-    def _content_height(self):
-        return self.HEADER_H + len(self.rows) * self.ROW_H
-
-    def _schedule_redraw(self):
-        if not self._redraw_scheduled:
-            self._redraw_scheduled = True
-            self.table_canvas.after_idle(self._do_redraw)
-
-    def _do_redraw(self):
-        self._redraw_scheduled = False
-        self._redraw_table()
-
-    def _on_table_configure(self, event):
-        if self._configure_after_id is not None:
-            self.table_canvas.after_cancel(self._configure_after_id)
-        self._configure_after_id = self.table_canvas.after(50,
-                                                           self._do_configure_redraw)
-
-    def _do_configure_redraw(self):
-        self._configure_after_id = None
-        self._clamp_offsets()
-        self._update_scrollbars()
-        self._redraw_table()
-
-    def _on_right_click(self, event):
-        if not self.rows or event.y < self.HEADER_H:
-            return
-        row_index = int((event.y + self.y_offset - self.HEADER_H) // self.ROW_H)
-        if 0 <= row_index < len(self.rows):
-            self._select(row_index)
-            try:
-                self.context_menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                self.context_menu.grab_release()
-
-    def _copy_name(self):
-        if self.selected < 0 or self.selected >= len(self.rows):
-            return
-        name = self.rows[self.selected]["name"]
-        self.root.clipboard_clear()
-        self.root.clipboard_append(name)
-        self.root.update()
-
+    # -------------------------------------------------------------- preview
     def _show_preview(self, row):
-        self._current_row = row
-        self.name_var.set(self._preview_title(row))
+        self.name_label.setText(self._preview_title(row))
+
+        path = self._row_image_path(row)
+        if path:
+            pixmap = self._load_pixmap(path)
+            self.thumb_label.setPixmap(pixmap if pixmap is not None
+                                       else QPixmap())
+        else:
+            self.thumb_label.clear()
+        # Resize the label to the pixmap's size hint; otherwise the scroll area
+        # keeps it at its previous (tiny) size and crops the image.
+        self.thumb_label.adjustSize()
 
         decimals = self._decimals
         lines = list(self._extra_preview_lines(row))
@@ -648,29 +595,31 @@ class OutfitTableApp(ttk.Frame):
             else:
                 lines.append("{}: {}".format(
                     header, self._format_cell(row, key, decimals.get(key, 0))))
-        self.stats_var.set("\n".join(lines))
-        self._redraw_preview()
+        self.stats_label.setText("\n".join(lines))
 
-    def _redraw_preview(self):
-        canvas = self.canvas
-        canvas.delete("all")
-        if self._current_row is None:
-            return
+        description = row.get("description", "")
+        if isinstance(description, str) and description:
+            self.description_label.setText(description)
+            self.description_label.show()
+        else:
+            self.description_label.setText("")
+            self.description_label.hide()
 
-        path = self._row_image_path(self._current_row)
-        if path is None:
-            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
-            return
+    def _load_pixmap(self, path):
+        """Load a sprite at its native resolution.
 
-        photo = self._load_photo(path, self.preview_size)
-        if photo is None:
-            canvas.create_text(10, 10, anchor="nw", text="No image.", fill=FG)
-            return
-
-        self._current_photo = photo
-        canvas.create_image(canvas.winfo_width() // 2,
-                            canvas.winfo_height() // 2,
-                            image=photo, anchor="center")
+        High-DPI (@2x) sprites get their device pixel ratio set so they are
+        shown at game size but at double resolution.
+        """
+        if path in self._pixmap_cache:
+            return self._pixmap_cache[path]
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return None
+        if "@2x" in path:
+            pixmap.setDevicePixelRatio(2.0)
+        self._pixmap_cache[path] = pixmap
+        return pixmap
 
     def _outfit_image_path(self, row):
         thumbnail = row.get("thumbnail", "")
@@ -689,16 +638,15 @@ class OutfitTableApp(ttk.Frame):
         """Return the image path for a row; subclasses may override."""
         return self._outfit_image_path(row)
 
+    # --------------------------------------------------------------- hooks
     def _base_rows(self):
-        """Return the rows to display before filtering and sorting."""
         return self.all_rows
 
-    def _build_extra_bar(self, bar):
+    def _build_extra_bar(self, layout):
         """Hook for subclasses to add extra top-bar controls."""
 
     def _build_context_menu(self, menu):
-        menu.add_command(label="Copy Name",
-                         command=self._copy_name)
+        menu.addAction("Copy Name", self._copy_name)
 
     def _preview_title(self, row):
         return row["name"]
@@ -706,61 +654,18 @@ class OutfitTableApp(ttk.Frame):
     def _extra_preview_lines(self, row):
         return []
 
-    def _load_photo(self, path, max_size):
-        if path in self._photo_cache:
-            return self._photo_cache[path]
-        try:
-            image = tk.PhotoImage(file=path)
-        except tk.TclError:
-            return None
-        largest = max(image.width(), image.height())
-        if largest > max_size:
-            factor = (largest + max_size - 1) // max_size
-            image = image.subsample(factor, factor)
-        self._photo_cache[path] = image
-        return image
-
-    def _start_preload(self):
-        """Queue every outfit thumbnail for loading once, in the background."""
-        paths = []
-        seen = set()
-        for row in self.rows:
-            path = self._row_image_path(row)
-            if path and path not in seen:
-                seen.add(path)
-                paths.append(path)
-        self._preload_paths = paths
-        self._preload_index = 0
-        self._preload_attempted = set()
-        self._update_preload_status()
-        if paths:
-            self.root.after(16, self._preload_next)
-
-    def _preload_next(self):
-        """Load one uncached thumbnail per tick, yielding to the event loop."""
-        while self._preload_index < len(self._preload_paths):
-            path = self._preload_paths[self._preload_index]
-            self._preload_index += 1
-            if path in self._photo_cache or path in self._preload_attempted:
-                continue
-            self._preload_attempted.add(path)
-            self._load_photo(path, self.preview_size)
-            self._update_preload_status()
-            break
-        if self._preload_index < len(self._preload_paths):
-            self.root.after(16, self._preload_next)
-        else:
-            self._update_preload_status()
-
-    def _update_preload_status(self):
-        total = len(self.rows)
-        noun = self.NOUN
-        if total == 0:
-            self.status_var.set("No {}s.".format(noun))
+    def _on_context_menu(self, pos):
+        index = self.view.indexAt(pos)
+        if not index.isValid():
             return
-        loaded = 0
-        for row in self.rows:
-            path = self._row_image_path(row)
-            if path is None or path in self._photo_cache:
-                loaded += 1
-        self.status_var.set("{} / {} {}s loaded".format(loaded, total, noun))
+        self.view.setCurrentIndex(self.model.index(index.row(), 0))
+        menu = QMenu(self)
+        self._build_context_menu(menu)
+        menu.exec(self.view.viewport().mapToGlobal(pos))
+
+    def _copy_name(self):
+        index = self.view.currentIndex()
+        rows = self.model.rows
+        if rows and index.isValid():
+            QApplication.clipboard().setText(
+                str(rows[index.row()]["name"]))

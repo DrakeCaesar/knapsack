@@ -6,13 +6,13 @@
 """
 
 import os
-import tkinter as tk
-from tkinter import ttk
+
+from PySide6.QtWidgets import QApplication, QCheckBox
 
 from .outfits import (ENGINE_COLUMNS, GENERATOR_COLUMNS,
                       build_engine_rows, build_generator_rows)
 from .parse import parse_blocks
-from .ships import (SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships)
+from .ships import SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships
 from .table import OutfitTableApp
 
 
@@ -69,11 +69,12 @@ class ShipBunksApp(OutfitTableApp):
             ships = resolve_ships(blocks)
             full_rows = build_rows(ships)
             deduped = dedupe_rows(full_rows)
-            self.root.after(0, self._on_data_loaded, ships, full_rows, deduped)
+            self._bridge.loaded.emit((ships, full_rows, deduped))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
-            self.root.after(0, self._load_error, str(exc))
+            self._bridge.failed.emit(str(exc))
 
-    def _on_data_loaded(self, ships, full_rows, deduped_rows):
+    def _on_data_loaded(self, payload):
+        ships, full_rows, deduped_rows = payload
         self.ships = ships
         self.full_rows = full_rows
         self.deduped_rows = deduped_rows
@@ -82,16 +83,15 @@ class ShipBunksApp(OutfitTableApp):
     def _base_rows(self):
         if self.show_all_var is None:
             return self.deduped_rows
-        return self.full_rows if self.show_all_var.get() else self.deduped_rows
+        return self.full_rows if self.show_all_var.isChecked() else self.deduped_rows
 
-    def _build_extra_bar(self, bar):
-        self.show_all_var = tk.BooleanVar(
-            value=bool(self.config.get("show_all", False)))
-        ttk.Checkbutton(bar, text="Show all variants",
-                        variable=self.show_all_var,
-                        command=self._on_show_all).pack(side=tk.RIGHT, padx=8)
+    def _build_extra_bar(self, layout):
+        self.show_all_var = QCheckBox("Show all variants")
+        self.show_all_var.setChecked(bool(self.config.get("show_all", False)))
+        self.show_all_var.toggled.connect(self._on_show_all)
+        layout.addWidget(self.show_all_var)
 
-    def _on_show_all(self):
+    def _on_show_all(self, *args):
         if not self.full_rows:
             return
         self._save_config()
@@ -114,10 +114,6 @@ class ShipBunksApp(OutfitTableApp):
                 path = os.path.join(images_dir, sprite + marker + ".png")
                 if os.path.isfile(path):
                     return path
-                # Animated ships store frames either in a directory named
-                # after the sprite (e.g. "ship/avgi koryfi/koryfi" ->
-                # koryfi-00.png) or beside it (e.g. "ship/hallucination" ->
-                # hallucination-0.png).
                 frame = self._first_frame(images_dir, sprite, marker)
                 if frame:
                     return frame
@@ -139,29 +135,23 @@ class ShipBunksApp(OutfitTableApp):
         return []
 
     def _build_context_menu(self, menu):
-        menu.add_command(label="Copy Source Name",
-                         command=lambda: self._copy_field("name"))
-        menu.add_command(label="Copy In-Game Name",
-                         command=lambda: self._copy_field("display_name"))
-        menu.add_separator()
-        menu.add_command(label="Copy Both Names",
-                         command=self._copy_both_names)
+        menu.addAction("Copy Source Name", lambda: self._copy_field("name"))
+        menu.addAction("Copy In-Game Name",
+                       lambda: self._copy_field("display_name"))
+        menu.addSeparator()
+        menu.addAction("Copy Both Names", self._copy_both_names)
 
     def _copy_field(self, key):
-        if self.selected < 0 or self.selected >= len(self.rows):
-            return
-        self._copy_to_clipboard(str(self.rows[self.selected][key]))
+        index = self.view.currentIndex()
+        if self.rows and index.isValid():
+            QApplication.clipboard().setText(str(self.rows[index.row()][key]))
 
     def _copy_both_names(self):
-        if self.selected < 0 or self.selected >= len(self.rows):
-            return
-        row = self.rows[self.selected]
-        self._copy_to_clipboard("{}\t{}".format(row["name"], row["display_name"]))
-
-    def _copy_to_clipboard(self, text):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update()
+        index = self.view.currentIndex()
+        if self.rows and index.isValid():
+            row = self.rows[index.row()]
+            QApplication.clipboard().setText(
+                "{}\t{}".format(row["name"], row["display_name"]))
 
     def _image_dirs(self):
         """Yield the image roots to search, plugin first when present."""

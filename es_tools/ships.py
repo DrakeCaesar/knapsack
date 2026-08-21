@@ -92,9 +92,11 @@ def build_rows(ships):
         display_name = attrs.get("display name", "")
         if not isinstance(display_name, str) or not display_name:
             display_name = ship["base"] if ship["variant"] is not None else ship["name"]
+        description = attrs.get("description", "")
         rows.append({
             "name": ship["name"],
             "display_name": display_name,
+            "description": description if isinstance(description, str) else "",
             "is_base": ship["variant"] is None,
             "category": category if isinstance(category, str) else "",
             "cost": cost,

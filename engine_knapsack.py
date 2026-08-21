@@ -100,7 +100,12 @@ def parse_outfits(data_dir):
                     depth = indent(lines[i])
                     fields = tokenize(lines[i])
                     if depth == 1 and len(fields) >= 2:
-                        attrs[fields[0]] = parse_value(fields[1])
+                        if fields[0] == "description":
+                            text = fields[1].strip() if isinstance(fields[1], str) else str(fields[1])
+                            previous = attrs.get("description", "")
+                            attrs["description"] = text if not previous else previous + "\n" + text
+                        else:
+                            attrs[fields[0]] = parse_value(fields[1])
                     i += 1
                 outfits.append({"name": name, "faction": faction, "attrs": attrs})
             else:
