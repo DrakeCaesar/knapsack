@@ -297,6 +297,15 @@ class EnginePickerApp(QWidget):
         self.clear_all_button = QPushButton("Clear all")
         self.select_all_button.clicked.connect(self._select_all_factions)
         self.clear_all_button.clicked.connect(self._clear_all_factions)
+        # Match the buttons' height to the checkboxes so the grid rows (and
+        # the gaps between checkbox rows) stay uniform.
+        box_height = max((box.sizeHint().height() for box in boxes), default=20)
+        for button in (self.select_all_button, self.clear_all_button):
+            button.setFixedHeight(box_height)
+            button.setStyleSheet(
+                "QPushButton { background: #333333; border: 1px solid #444444;"
+                " padding: 0 10px; }"
+                "QPushButton:hover { background: #3c3c3c; }")
         self.faction_layout.addWidget(self.select_all_button, 0, 0)
         self.faction_layout.addWidget(self.clear_all_button, 1, 0)
         for index, box in enumerate(boxes):

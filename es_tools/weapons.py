@@ -76,6 +76,7 @@ class WeaponsApp(QWidget):
         self._bridge.failed.connect(self._load_error)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.status_label = QLabel("Loading weapons...")
         layout.addWidget(self.status_label, 0)
 
