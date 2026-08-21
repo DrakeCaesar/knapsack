@@ -703,20 +703,32 @@ class OutfitTableApp(QWidget):
         self._fit_splitter()
 
     def _fit_splitter(self):
-        """Widen the table so the preview panel doesn't cover its columns.
+        """Size the table and the right-hand preview panel.
 
-        Only does this once per data refresh (and once when the tab is first
-        shown) so it never fights the user's own splitter drags, and only when
-        the window is wide enough to leave a usable preview panel.
+        Prefers to show every table column alongside a preview panel wide
+        enough for the widest sprite. If the table is wider than the window,
+        the preview still gets as much room as it can and the table scrolls
+        horizontally. Only does this once per data refresh (and once when the
+        tab is first shown) so it never fights the user's own splitter drags.
         """
         if self._splitter_fit:
             return
         available = self.splitter.width()
+        if available <= 0 or self._table_desired_width <= 0:
+            return
         table_width = self._table_desired_width
         preview_needed = max(self.preview.maximumWidth(), self.MIN_PREVIEW_WIDTH)
-        if available <= 0 or available < table_width + preview_needed + 10:
-            return
-        self.splitter.setSizes([table_width, available - table_width])
+
+        if available >= table_width + preview_needed + 10:
+            # Everything fits: table shows all columns, preview gets the rest.
+            self.splitter.setSizes([table_width, available - table_width])
+        else:
+            # Table too wide for the window: size the preview to the widest
+            # sprite (capped so the table stays usable) and let the table
+            # scroll horizontally.
+            preview_size = min(preview_needed, int(available * 0.6))
+            table_size = max(1, available - preview_size)
+            self.splitter.setSizes([table_size, preview_size])
         self._splitter_fit = True
 
     def showEvent(self, event):
