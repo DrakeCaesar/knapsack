@@ -55,11 +55,21 @@ def cell_color(value, min_v, max_v, reverse=False):
     return heat_color(t)
 
 
+def png_width(path):
+    """Read a PNG file's pixel width from its header without full decoding."""
+    with open(path, "rb") as handle:
+        data = handle.read(24)
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        return 0
+    return int.from_bytes(data[16:20], "big")
+
+
 class _SignalBridge(QObject):
     """Thread-safe bridge: worker threads emit these to reach the UI thread."""
 
     loaded = Signal(object)
     failed = Signal(str)
+    measured = Signal(int, float)
 
 
 class OutfitTableModel(QAbstractTableModel):
@@ -200,6 +210,9 @@ class OutfitTableApp(QWidget):
     # Extra total horizontal padding added when auto-sizing column widths; it
     # is split evenly on either side of the widest cell text.
     CELL_PADDING = 16
+    # Minimum width kept for the right-hand preview panel when the splitter is
+    # auto-adjusted to make room for the full table.
+    MIN_PREVIEW_WIDTH = 240
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -232,10 +245,14 @@ class OutfitTableApp(QWidget):
         self._preload_timer = None
         self._preload_paths = []
         self._preload_index = 0
+        self._table_desired_width = 0
+        self._splitter_fit = False
+        self._measure_generation = 0
 
         self._bridge = _SignalBridge(self)
         self._bridge.loaded.connect(self._on_data_loaded)
         self._bridge.failed.connect(self._load_error)
+        self._bridge.measured.connect(self._on_measured)
 
         self._build_ui()
         self._start_loading()
@@ -282,8 +299,8 @@ class OutfitTableApp(QWidget):
             root.addWidget(self.faction_widget, 0,
                            Qt.AlignmentFlag.AlignLeft)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(splitter, 1)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(self.splitter, 1)
 
         # Left: the heatmap table.
         self.view = QTableView()
@@ -302,11 +319,11 @@ class OutfitTableApp(QWidget):
         self.view.customContextMenuRequested.connect(self._on_context_menu)
         self.view.selectionModel().currentRowChanged.connect(
             self._on_current_row_changed)
-        splitter.addWidget(self.view)
+        self.splitter.addWidget(self.view)
 
         # Right: thumbnail + stats preview.
-        preview = QWidget()
-        pv = QVBoxLayout(preview)
+        self.preview = QWidget()
+        pv = QVBoxLayout(self.preview)
         pv.setContentsMargins(6, 6, 6, 6)
         pv.setSpacing(6)
         self.name_label = QLabel("")
@@ -323,12 +340,6 @@ class OutfitTableApp(QWidget):
         self.thumb_label.setStyleSheet("border: 1px solid #777777;")
         self.scroll_area.setWidget(self.thumb_label)
         pv.addWidget(self.scroll_area, 1)
-        self.stats_label = QLabel("")
-        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignTop
-                                      | Qt.AlignmentFlag.AlignLeft)
-        self.stats_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
-        pv.addWidget(self.stats_label)
         self.description_label = QLabel("")
         self.description_label.setWordWrap(True)
         self.description_label.setAlignment(Qt.AlignmentFlag.AlignTop
@@ -337,9 +348,15 @@ class OutfitTableApp(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse)
         self.description_label.setStyleSheet("color: #b0b0b0;")
         pv.addWidget(self.description_label)
-        splitter.addWidget(preview)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        self.stats_label = QLabel("")
+        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignTop
+                                      | Qt.AlignmentFlag.AlignLeft)
+        self.stats_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        pv.addWidget(self.stats_label)
+        self.splitter.addWidget(self.preview)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 2)
 
     def _start_loading(self):
         self.status_label.setText("Loading {}s...".format(self.NOUN))
@@ -419,6 +436,7 @@ class OutfitTableApp(QWidget):
         self.rows = self._sorted_rows(self.rows)
         self._recompute_columns()
         self.model.set_rows(self.rows)
+        self._measure_widest_sprite_async()
         self._auto_size_columns()
         self._select_first()
         self._start_preload()
@@ -561,13 +579,89 @@ class OutfitTableApp(QWidget):
     def _auto_size_columns(self):
         metrics = self.view.fontMetrics()
         header = self.view.horizontalHeader()
+        total = 0
         for column, (column_header, key, _anchor) in enumerate(self.model.columns):
             longest = metrics.horizontalAdvance(column_header)
             for row in self.rows:
                 text = self._format_cell(row, key, self._decimals.get(key, 0))
                 longest = max(longest, metrics.horizontalAdvance(text))
             self.view.setColumnWidth(column, longest + self.CELL_PADDING)
+            total += longest + self.CELL_PADDING
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        # Include room for the vertical scrollbar so columns aren't pushed
+        # behind it, then make the splitter give the table that much room.
+        total += self.view.verticalScrollBar().sizeHint().width()
+        self._table_desired_width = total
+        self._splitter_fit = False
+        self._fit_splitter()
+
+    def _measure_widest_sprite_async(self):
+        """Find the widest sprite in this list without blocking the UI.
+
+        PNG dimensions live in the first 24 bytes, so this is a tiny read per
+        file. The scan runs on a worker thread and reports back through the
+        signal bridge so the main thread stays responsive.
+        """
+        paths = []
+        seen = set()
+        for row in self.rows:
+            path = self._row_image_path(row)
+            if path and path not in seen:
+                seen.add(path)
+                paths.append(path)
+
+        self._measure_generation += 1
+        generation = self._measure_generation
+        if not paths:
+            self._apply_measured_width(0)
+            return
+
+        def run():
+            widest = 0.0
+            for path in paths:
+                try:
+                    width = png_width(path)
+                except OSError:
+                    width = 0
+                if width and "@2x" in path:
+                    width /= 2.0
+                if width > widest:
+                    widest = width
+            self._bridge.measured.emit(generation, float(widest))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_measured(self, generation, widest):
+        if generation != self._measure_generation:
+            return  # stale result from an earlier list
+        self._apply_measured_width(widest)
+
+    def _apply_measured_width(self, widest):
+        max_width = int(widest) + 24 if widest else self.MIN_PREVIEW_WIDTH
+        self.preview.setMaximumWidth(max(max_width, self.MIN_PREVIEW_WIDTH))
+        self._splitter_fit = False
+        self._fit_splitter()
+
+    def _fit_splitter(self):
+        """Widen the table so the preview panel doesn't cover its columns.
+
+        Only does this once per data refresh (and once when the tab is first
+        shown) so it never fights the user's own splitter drags, and only when
+        the window is wide enough to leave a usable preview panel.
+        """
+        if self._splitter_fit:
+            return
+        available = self.splitter.width()
+        table_width = self._table_desired_width
+        preview_needed = max(self.preview.maximumWidth(), self.MIN_PREVIEW_WIDTH)
+        if available <= 0 or available < table_width + preview_needed + 10:
+            return
+        self.splitter.setSizes([table_width, available - table_width])
+        self._splitter_fit = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._fit_splitter()
 
     # -------------------------------------------------------------- preview
     def _show_preview(self, row):

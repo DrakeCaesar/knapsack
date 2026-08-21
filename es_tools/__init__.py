@@ -20,12 +20,15 @@ Run it with the entry script at ``knapsack/endless_sky_tools.py`` (or
 
 import sys
 
+from PySide6.QtCore import QByteArray, QSettings
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from .engine_picker import EnginePickerApp
 from .outfit_apps import EnginesApp, GeneratorsApp, ShipBunksApp
 from .theme import apply_theme
 from .weapons import WeaponsApp
+
+GEOMETRY_KEY = "window/geometry"
 
 
 class MainWindow(QMainWindow):
@@ -44,12 +47,33 @@ class MainWindow(QMainWindow):
         tabs.addTab(WeaponsApp(), "Weapons")
         self.setCentralWidget(tabs)
 
+    def closeEvent(self, event):
+        """Persist position, size, and maximized/full-screen state."""
+        QSettings().setValue(GEOMETRY_KEY, self.saveGeometry())
+        super().closeEvent(event)
+
+
+def restore_window(window):
+    """Restore the window's previous geometry and window state, if any."""
+    geometry = QSettings().value(GEOMETRY_KEY)
+    if isinstance(geometry, QByteArray) and not geometry.isEmpty():
+        window.restoreGeometry(geometry)
+        if window.isFullScreen():
+            window.showFullScreen()
+        elif window.isMaximized():
+            window.showMaximized()
+        else:
+            window.show()
+        return
+    window.show()
+
 
 def main():
     app = QApplication(sys.argv)
+    app.setOrganizationName("EndlessSky")
     app.setApplicationName("Endless Sky Tools")
     apply_theme(app)
 
     window = MainWindow()
-    window.show()
+    restore_window(window)
     sys.exit(app.exec())
