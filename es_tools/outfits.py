@@ -4,6 +4,8 @@ Each builder turns parsed outfits into comparable table rows. Column tuples
 are (header, row key, anchor); widths are auto-sized by the table at runtime.
 """
 
+import math
+
 from .config import EXCLUDE_ZERO_COST
 from .parse import number
 
@@ -398,6 +400,9 @@ SYSTEMS_COLUMNS = [
     ("En Use", "energy", "e"),
     ("Fuel", "fuel_capacity", "e"),
     ("Ramscp", "ramscoop", "e"),
+    ("Ramscoop/Space", "ramscoop_per_space", "e"),
+    ("Eff Ramscp", "ramscoop_effective", "e"),
+    ("Eff Ramscp/Space", "ramscoop_effective_per_space", "e"),
 ]
 
 # Hand-to-hand comparison table columns.
@@ -474,6 +479,7 @@ def build_systems_rows(outfits, series=None):
         if EXCLUDE_ZERO_COST and cost == 0:
             continue
         space = max(0.0, -number(attrs, "outfit space"))
+        ramscoop = number(attrs, "ramscoop")
         thumbnail = attrs.get("thumbnail", "")
         description = attrs.get("description", "")
         rows.append({
@@ -493,7 +499,11 @@ def build_systems_rows(outfits, series=None):
             "jamming": number(attrs, "radar jamming"),
             "energy": number(attrs, "energy consumption"),
             "fuel_capacity": number(attrs, "fuel capacity"),
-            "ramscoop": number(attrs, "ramscoop"),
+            "ramscoop": ramscoop,
+            "ramscoop_per_space": ramscoop / space if space > 0 else 0.0,
+            "ramscoop_effective": math.sqrt(max(0.0, ramscoop)),
+            "ramscoop_effective_per_space": (
+                math.sqrt(max(0.0, ramscoop)) / space if space > 0 else 0.0),
             "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
         })
 

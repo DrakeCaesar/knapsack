@@ -16,8 +16,11 @@ class SystemCategoryTable(SeriesTable):
     TEXT_KEYS = {"name", "faction", "series"}
     REVERSED_KEYS = {"shields", "shield_generation", "cooling", "scan_power",
                      "hull_repair", "hull", "jamming", "fuel_capacity",
-                     "ramscoop"}
-    RATIO_KEYS = set()
+                     "ramscoop", "ramscoop_per_space", "ramscoop_effective",
+                     "ramscoop_effective_per_space"}
+    THREE_DECIMAL_KEYS = {"energy", "heat", "reload", "dps",
+                          "ramscoop_effective"}
+    RATIO_KEYS = {"ramscoop_per_space", "ramscoop_effective_per_space"}
     NOUN = "system"
     DEFAULT_SORT_KEY = "name"
     CONFIG_FILENAME = ".endless_sky_systems.json"
