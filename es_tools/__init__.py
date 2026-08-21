@@ -18,13 +18,16 @@ Run it with the entry script at ``knapsack/endless_sky_tools.py`` (or
 ``python -m es_tools`` from inside the ``knapsack`` folder).
 """
 
+import os
 import sys
 
 from PySide6.QtCore import QByteArray, QSettings
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from .engine_picker import EnginePickerApp
 from .outfit_apps import EnginesApp, GeneratorsApp, ShipBunksApp
+from .paths import ICONS_DIR
 from .theme import apply_theme
 from .weapons import WeaponsApp
 
@@ -72,6 +75,12 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("EndlessSky")
     app.setApplicationName("Endless Sky Tools")
+
+    # Reuse the game's Windows icon (the same one embedded in EndlessSky.exe).
+    icon_path = os.path.join(ICONS_DIR, "WinApp.ico")
+    if os.path.isfile(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     apply_theme(app)
 
     window = MainWindow()

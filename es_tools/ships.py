@@ -15,19 +15,19 @@ BUNK_ROOM_OUTFIT_SPACE = 20.0
 SHIP_COLUMNS = [
     ("Source Name", "name", "w"),
     ("In-Game Name", "display_name", "w"),
+    ("Category", "category", "w"),
     ("Max Bunks", "max_bunks", "e"),
     ("Bunks", "bunks", "e"),
+    ("Crew", "crew", "e"),
     ("Cargo", "cargo", "e"),
-    ("Outfit", "outfit", "e"),
     ("Expansions", "expansions", "e"),
-    ("Outfit Total", "outfit_total", "e"),
     ("Bunk Rooms", "bunk_rooms", "e"),
+    ("Outfit Total", "outfit_total", "e"),
+    ("Outfit", "outfit", "e"),
     ("Leftover Outfit", "leftover_outfit", "e"),
-    ("Category", "category", "w"),
     ("Cost", "cost", "e"),
     ("Shields", "shields", "e"),
     ("Hull", "hull", "e"),
-    ("Crew", "crew", "e"),
 ]
 
 
