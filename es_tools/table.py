@@ -212,7 +212,7 @@ class OutfitTableApp(QWidget):
     CELL_PADDING = 16
     # Minimum width kept for the right-hand preview panel when the splitter is
     # auto-adjusted to make room for the full table.
-    MIN_PREVIEW_WIDTH = 240
+    MIN_PREVIEW_WIDTH = 480
 
     def __init__(self, parent=None):
         super().__init__(parent)
