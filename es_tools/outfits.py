@@ -501,22 +501,35 @@ def build_systems_rows(outfits, series=None):
     return rows
 
 
+def is_h2h(attrs):
+    """An outfit is hand-to-hand if it grants capture attack or defense."""
+    if attrs.get("category") == "Hand to Hand":
+        return True
+    if not attrs.get("category"):
+        return False
+    return (number(attrs, "capture attack") > 0
+            or number(attrs, "capture defense") > 0)
+
+
+def h2h_group(attrs):
+    """The hand-to-hand sub-tab an outfit belongs to."""
+    if attrs.get("series") == "Fortifications":
+        return "Fortifications"
+    return "H2H"
+
+
 def build_h2h_rows(outfits, series=None):
     """Return one row per hand-to-hand outfit (boarding equipment).
 
-    ``series`` optionally restricts the rows to a single hand-to-hand series;
-    the special value "Other" matches outfits with no series attribute.
+    ``series`` optionally restricts the rows to a single hand-to-hand group.
     """
     rows = []
     for outfit in outfits:
         attrs = outfit["attrs"]
-        if attrs.get("category") != "Hand to Hand":
+        if not is_h2h(attrs):
             continue
-        actual = attrs.get("series", "")
-        if series == "Other":
-            if actual:
-                continue
-        elif series is not None and actual != series:
+        group = h2h_group(attrs)
+        if series is not None and group != series:
             continue
         cost = number(attrs, "cost")
         if EXCLUDE_ZERO_COST and cost == 0:
@@ -589,6 +602,146 @@ def power_series(outfits):
 
 
 def h2h_series(outfits):
-    """Return the ordered hand-to-hand series that actually contain outfits."""
-    return series_in(outfits, lambda a: a.get("category") == "Hand to Hand",
-                     ["H2H", "Fortifications"])
+    """Return the ordered hand-to-hand groups that actually contain outfits."""
+    present = set()
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if is_h2h(attrs):
+            present.add(h2h_group(attrs))
+    return [group for group in ("H2H", "Fortifications") if group in present]
+
+
+# Advanced engine columns: afterburners, reverse modules, and FTL drives.
+ADV_ENGINE_COLUMNS = [
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Type", "etype", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Aft Thr", "afterburner_thrust", "e"),
+    ("Rev Thr", "reverse_thrust", "e"),
+    ("Jump Spd", "jump_speed", "e"),
+    ("En/s", "energy", "e"),
+    ("Ht/s", "heat", "e"),
+    ("Aft Fuel", "afterburner_fuel", "e"),
+    ("Jump Fuel", "jump_fuel", "e"),
+]
+
+# Columns for the Unique & Special tab.
+UNIQUE_COLUMNS = [
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Type", "series", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+]
+
+ADV_ENGINE_TYPES = ["Afterburners", "Drives", "Reverse"]
+
+
+def advanced_engine_type(attrs):
+    """Classify an outfit as one of the advanced engine types, or None."""
+    if number(attrs, "reverse thrust") > 0:
+        return "Reverse"
+    if number(attrs, "afterburner thrust") > 0:
+        return "Afterburners"
+    for key in ("jump drive", "hyperdrive", "scram drive", "quantum keystone"):
+        if number(attrs, key) > 0:
+            return "Drives"
+    return None
+
+
+def build_advanced_engine_rows(outfits, etype=None):
+    """Return one row per advanced-engine outfit (afterburner/reverse/drive)."""
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        kind = advanced_engine_type(attrs)
+        if kind is None:
+            continue
+        if etype is not None and kind != etype:
+            continue
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
+        space = max(0.0, -number(attrs, "outfit space"))
+        thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "etype": kind,
+            "description": description if isinstance(description, str) else "",
+            "cost": cost,
+            "mass": number(attrs, "mass"),
+            "space": space,
+            "afterburner_thrust": number(attrs, "afterburner thrust"),
+            "reverse_thrust": number(attrs, "reverse thrust"),
+            "jump_speed": number(attrs, "jump speed"),
+            "energy": (number(attrs, "afterburner energy")
+                       + number(attrs, "reverse thrusting energy")),
+            "heat": (number(attrs, "afterburner heat")
+                     + number(attrs, "reverse thrusting heat")),
+            "afterburner_fuel": number(attrs, "afterburner fuel"),
+            "jump_fuel": number(attrs, "jump fuel"),
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (row["etype"], -row["cost"], row["name"].lower()))
+    return rows
+
+
+def advanced_engine_types(outfits):
+    """Return the ordered advanced-engine types that actually contain outfits."""
+    present = set()
+    for outfit in outfits:
+        kind = advanced_engine_type(outfit["attrs"])
+        if kind:
+            present.add(kind)
+    return [kind for kind in ADV_ENGINE_TYPES if kind in present]
+
+
+def build_unique_rows(outfits, series=None):
+    """Return one row per Unique/Special outfit."""
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("category") not in ("Unique", "Special"):
+            continue
+        if is_h2h(attrs):
+            continue
+        actual = attrs.get("series", "")
+        if series == "Other":
+            if actual:
+                continue
+        elif series is not None and actual != series:
+            continue
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
+        space = max(0.0, -number(attrs, "outfit space"))
+        thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "series": actual if actual else "Other",
+            "description": description if isinstance(description, str) else "",
+            "cost": cost,
+            "mass": number(attrs, "mass"),
+            "space": space,
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (row["series"], row["name"].lower()))
+    return rows
+
+
+def unique_series(outfits):
+    """Return the ordered Unique/Special series that actually contain outfits."""
+    return series_in(outfits,
+                     lambda a: (a.get("category") in ("Unique", "Special")
+                                and not is_h2h(a)),
+                     ["Functional Unique", "Non-Functional Unique"])

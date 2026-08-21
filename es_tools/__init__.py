@@ -26,7 +26,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from .engine_picker import EnginePickerApp
-from .outfit_apps import EnginesApp, HandToHandApp, PowerApp, ShipBunksApp
+from .outfit_apps import (EnginesApp, HandToHandApp, PowerApp, ShipBunksApp,
+                          SpecialApp)
 from .paths import ICONS_DIR
 from .systems import SystemsApp
 from .theme import apply_theme
@@ -49,8 +50,9 @@ class MainWindow(QMainWindow):
         tabs.addTab(EnginesApp(), "Engines")
         tabs.addTab(PowerApp(), "Power")
         tabs.addTab(SystemsApp(), "Systems")
-        tabs.addTab(HandToHandApp(), "Hand to Hand")
         tabs.addTab(WeaponsApp(), "Weapons")
+        tabs.addTab(HandToHandApp(), "Hand to Hand")
+        tabs.addTab(SpecialApp(), "Special")
         self.setCentralWidget(tabs)
 
     def closeEvent(self, event):

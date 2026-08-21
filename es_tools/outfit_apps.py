@@ -8,19 +8,22 @@
 
 import os
 
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtWidgets import (QApplication, QCheckBox, QTabWidget, QVBoxLayout,
+                               QWidget)
 
-from .outfits import (ENGINE_COLUMNS, H2H_COLUMNS, POWER_COLUMNS,
+from .outfits import (ADV_ENGINE_COLUMNS, ENGINE_COLUMNS, H2H_COLUMNS,
+                      POWER_COLUMNS, UNIQUE_COLUMNS,
+                      advanced_engine_types, build_advanced_engine_rows,
                       build_engine_rows, build_h2h_rows, build_power_rows,
-                      h2h_series, power_series)
+                      build_unique_rows, h2h_series, power_series)
 from .parse import parse_blocks
 from .series import SeriesApp, SeriesTable
 from .ships import SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships
 from .table import OutfitTableApp
 
 
-class EnginesApp(OutfitTableApp):
-    """Tab that compares the stats of every engine outfit."""
+class EnginesTable(OutfitTableApp):
+    """Tab that compares the stats of every plain engine outfit."""
 
     COLUMNS = ENGINE_COLUMNS
     BUILDER = build_engine_rows
@@ -74,6 +77,54 @@ class HandToHandApp(SeriesApp):
     TABLE_CLS = HandToHandTable
     SERIES_FN = h2h_series
     LABEL = "Loading hand-to-hand outfits..."
+
+
+class AdvancedEnginesTable(SeriesTable):
+    """Heatmap table comparing advanced-engine outfits of one type."""
+
+    COLUMNS = ADV_ENGINE_COLUMNS
+    BUILDER = build_advanced_engine_rows
+    TEXT_KEYS = {"name", "faction", "etype"}
+    REVERSED_KEYS = {"afterburner_thrust", "reverse_thrust", "jump_speed"}
+    RATIO_KEYS = set()
+    NOUN = "advanced engine"
+    DEFAULT_SORT_KEY = "name"
+    CONFIG_FILENAME = ".endless_sky_advanced_engines.json"
+
+
+class AdvancedEnginesApp(SeriesApp):
+    """Tab comparing afterburners, reverse modules, and FTL drives."""
+
+    TABLE_CLS = AdvancedEnginesTable
+    SERIES_FN = advanced_engine_types
+    LABEL = "Loading advanced engines..."
+
+
+class EnginesApp(QWidget):
+    """Tab comparing engines: plain engines plus advanced engine types."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        tabs = QTabWidget()
+        tabs.addTab(EnginesTable(), "Engines")
+        tabs.addTab(AdvancedEnginesApp(), "Advanced")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(tabs)
+
+
+class SpecialApp(OutfitTableApp):
+    """Tab listing all Unique/Special outfits in one flat table."""
+
+    COLUMNS = UNIQUE_COLUMNS
+    BUILDER = build_unique_rows
+    TEXT_KEYS = {"name", "faction", "series"}
+    REVERSED_KEYS = set()
+    RATIO_KEYS = set()
+    NOUN = "special outfit"
+    DEFAULT_SORT_KEY = "series"
+    DEFAULT_SORT_REVERSE = False
+    CONFIG_FILENAME = ".endless_sky_special.json"
 
 
 class ShipBunksApp(OutfitTableApp):
