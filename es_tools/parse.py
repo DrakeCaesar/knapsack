@@ -238,6 +238,10 @@ def parse_all(data_dir):
     - ``weapons`` are the same outfits with the nested ``weapon`` stats in
       ``attrs["weapon"]``.
     - ``blocks`` are ship base/variant blocks with attribute ops.
+
+    Blank lines inside a block are skipped (they carry no data) rather than
+    treated as block terminators, so attributes after a blank line within an
+    ``attributes`` block (e.g. ``"cargo space"``) are still captured.
     """
     outfits = []
     weapons = []
@@ -258,12 +262,22 @@ def parse_all(data_dir):
                 attrs = {}
                 weapon = {}
                 i += 1
-                while i < n and indent(lines[i]) > 0:
+                while i < n:
+                    if not lines[i].strip():
+                        i += 1
+                        continue
+                    if indent(lines[i]) <= 0:
+                        break
                     depth = indent(lines[i])
                     fields = tokenize(lines[i])
                     if depth == 1 and fields and fields[0] == "weapon":
                         i += 1
-                        while i < n and indent(lines[i]) > 1:
+                        while i < n:
+                            if not lines[i].strip():
+                                i += 1
+                                continue
+                            if indent(lines[i]) <= 1:
+                                break
                             if indent(lines[i]) == 2 and len(tokenize(lines[i])) >= 2:
                                 w = tokenize(lines[i])
                                 weapon[w[0]] = parse_value(w[1])
@@ -289,7 +303,12 @@ def parse_all(data_dir):
                 i += 1
 
                 # Consume this ship's block (all lines indented under it).
-                while i < n and indent(lines[i]) > 0:
+                while i < n:
+                    if not lines[i].strip():
+                        i += 1
+                        continue
+                    if indent(lines[i]) <= 0:
+                        break
                     inner_level = indent(lines[i])
                     inner = tokenize(lines[i])
 
@@ -307,7 +326,12 @@ def parse_all(data_dir):
                             values = {}
                             ops.append(("set", values))
                             i += 1
-                            while i < n and indent(lines[i]) > 1:
+                            while i < n:
+                                if not lines[i].strip():
+                                    i += 1
+                                    continue
+                                if indent(lines[i]) <= 1:
+                                    break
                                 attr_level = indent(lines[i])
                                 attr = tokenize(lines[i])
                                 if attr_level == 2 and len(attr) >= 2:
@@ -319,7 +343,12 @@ def parse_all(data_dir):
                             values = {}
                             ops.append(("add", values))
                             i += 1
-                            while i < n and indent(lines[i]) > 1:
+                            while i < n:
+                                if not lines[i].strip():
+                                    i += 1
+                                    continue
+                                if indent(lines[i]) <= 1:
+                                    break
                                 attr_level = indent(lines[i])
                                 attr = tokenize(lines[i])
                                 if attr_level == 2 and len(attr) >= 2:
