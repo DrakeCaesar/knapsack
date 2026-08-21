@@ -7,12 +7,12 @@ shared with every table.
 """
 
 import threading
+import time
 
 from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 
 from .outfits import WEAPON_COLUMNS, build_weapon_rows, weapon_mount_types
-from .parse import parse_weapon_outfits
-from .paths import DATA_DIR
+from .parse import shared_weapons
 from .table import OutfitTableApp, _SignalBridge
 
 
@@ -44,7 +44,7 @@ class WeaponCategoryTable(OutfitTableApp):
         try:
             outfits = self.WEAPON_OUTFITS
             if outfits is None:
-                outfits = parse_weapon_outfits(self.data_dir)
+                outfits = shared_weapons()
             rows = build_weapon_rows(outfits, self.WEAPON_TYPES, self.WEAPON_MOUNT)
             self._bridge.loaded.emit((outfits, rows))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
@@ -71,6 +71,7 @@ class WeaponsApp(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.apps = {}
+        self._load_t0 = time.monotonic()
         self._bridge = _SignalBridge(self)
         self._bridge.loaded.connect(self._build_ui)
         self._bridge.failed.connect(self._load_error)
@@ -84,7 +85,7 @@ class WeaponsApp(QWidget):
 
     def _load_worker(self):
         try:
-            outfits = parse_weapon_outfits(DATA_DIR)
+            outfits = shared_weapons()
             groups = weapon_mount_types(outfits)
             self._bridge.loaded.emit((outfits, groups))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
@@ -95,6 +96,9 @@ class WeaponsApp(QWidget):
 
     def _build_ui(self, payload):
         outfits, groups = payload
+        elapsed = (time.monotonic() - self._load_t0) * 1000.0
+        print("[load] WeaponsApp: {} groups in {:.0f} ms".format(
+            len(groups), elapsed))
         self.status_label.hide()
 
         types_by_mount = {}

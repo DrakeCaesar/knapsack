@@ -7,6 +7,7 @@
 """
 
 import os
+import time
 
 from PySide6.QtWidgets import (QApplication, QCheckBox, QTabWidget, QVBoxLayout,
                                QWidget)
@@ -16,7 +17,7 @@ from .outfits import (ADV_ENGINE_COLUMNS, ENGINE_COLUMNS, H2H_COLUMNS,
                       advanced_engine_types, build_advanced_engine_rows,
                       build_engine_rows, build_h2h_rows, build_power_rows,
                       build_unique_rows, h2h_series, power_series)
-from .parse import parse_blocks
+from .parse import parse_blocks, shared_blocks
 from .series import SeriesApp, SeriesTable
 from .ships import SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships
 from .table import OutfitTableApp
@@ -150,7 +151,7 @@ class ShipBunksApp(OutfitTableApp):
 
     def _load_worker(self):
         try:
-            blocks = parse_blocks(self.data_dir)
+            blocks = shared_blocks()
             ships = resolve_ships(blocks)
             full_rows = build_rows(ships)
             deduped = dedupe_rows(full_rows)
@@ -160,6 +161,9 @@ class ShipBunksApp(OutfitTableApp):
 
     def _on_data_loaded(self, payload):
         ships, full_rows, deduped_rows = payload
+        elapsed = (time.monotonic() - self._load_t0) * 1000.0
+        print("[load] ship: {} rows in {:.0f} ms".format(
+            len(deduped_rows), elapsed))
         self.ships = ships
         self.full_rows = full_rows
         self.deduped_rows = deduped_rows

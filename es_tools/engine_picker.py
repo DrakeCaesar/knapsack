@@ -3,6 +3,7 @@
 import json
 import os
 import threading
+import time
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
@@ -16,6 +17,7 @@ import engine_knapsack as ek
 
 from .config import EXCLUDE_ZERO_COST
 from .images import find_plugin_images_dir
+from .parse import shared_outfits
 from .paths import DATA_DIR, IMAGES_DIR
 from .table import _SignalBridge
 from .theme import BG, FG, SELECT_BG
@@ -249,11 +251,12 @@ class EnginePickerApp(QWidget):
 
     # ------------------------------------------------------------- loading
     def _start_loading(self):
+        self._load_t0 = time.monotonic()
         self.status_label.setText("Loading outfits...")
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _parsed_outfits(self):
-        outfits = ek.parse_outfits(self.data_dir)
+        outfits = shared_outfits()
         if EXCLUDE_ZERO_COST:
             outfits = [outfit for outfit in outfits
                        if outfit["attrs"].get("cost", 0.0) != 0]
@@ -379,6 +382,9 @@ class EnginePickerApp(QWidget):
         kind = payload[0]
         if kind == "load":
             _, outfits, factions = payload
+            elapsed = (time.monotonic() - self._load_t0) * 1000.0
+            print("[load] EnginePicker: {} factions in {:.0f} ms".format(
+                len(factions), elapsed))
             self.outfits = outfits
             self._build_faction_checkboxes(factions)
             self.compute_button.setEnabled(True)

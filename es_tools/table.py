@@ -25,6 +25,7 @@ import engine_knapsack as ek
 
 from .config import PRELOAD_IMAGES
 from .images import find_plugin_images_dir
+from .parse import shared_outfits
 from .paths import DATA_DIR, IMAGES_DIR
 from .theme import BG, ENTRY_BG, FG, SELECT_BG
 
@@ -265,6 +266,9 @@ class OutfitTableApp(QWidget):
         self._table_desired_width = 0
         self._splitter_fit = False
         self._measure_generation = 0
+        self._load_t0 = 0.0
+        self._measure_t0 = 0.0
+        self._measure_count = 0
 
         self._bridge = _SignalBridge(self)
         self._bridge.loaded.connect(self._on_data_loaded)
@@ -376,12 +380,13 @@ class OutfitTableApp(QWidget):
         self.splitter.setStretchFactor(1, 2)
 
     def _start_loading(self):
+        self._load_t0 = time.monotonic()
         self.status_label.setText("Loading {}s...".format(self.NOUN))
         threading.Thread(target=self._load_worker, daemon=True).start()
 
     def _load_worker(self):
         try:
-            outfits = ek.parse_outfits(self.data_dir)
+            outfits = shared_outfits()
             rows = type(self).BUILDER(outfits)
             self._bridge.loaded.emit((outfits, rows))
         except Exception as exc:  # pragma: no cover - surfaced in the UI.
@@ -389,6 +394,9 @@ class OutfitTableApp(QWidget):
 
     def _on_data_loaded(self, payload):
         outfits, rows = payload
+        elapsed = (time.monotonic() - self._load_t0) * 1000.0
+        print("[load] {}: {} rows in {:.0f} ms".format(
+            self.NOUN, len(rows), elapsed))
         self.outfits = outfits
         self.all_rows = rows
         if self.HAS_FACTIONS:
@@ -661,6 +669,8 @@ class OutfitTableApp(QWidget):
 
         self._measure_generation += 1
         generation = self._measure_generation
+        self._measure_t0 = time.monotonic()
+        self._measure_count = len(paths)
         if not paths:
             self._apply_measured_width(0)
             return
@@ -681,6 +691,9 @@ class OutfitTableApp(QWidget):
     def _on_measured(self, generation, widest):
         if generation != self._measure_generation:
             return  # stale result from an earlier list
+        elapsed = (time.monotonic() - self._measure_t0) * 1000.0
+        print("[sprites] {}: {} files in {:.0f} ms".format(
+            self.NOUN, self._measure_count, elapsed))
         self._apply_measured_width(widest)
 
     def _apply_measured_width(self, widest):

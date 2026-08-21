@@ -5,6 +5,41 @@ tab-indented text data into Python structures.
 """
 
 import os
+import threading
+
+from .paths import DATA_DIR
+
+# Lazily parsed data shared by every tab so the game data is only parsed once.
+_cache = {}
+_cache_lock = threading.Lock()
+
+
+def shared_outfits():
+    """Return the parsed outfits, parsing them only once (thread-safe)."""
+    if "outfits" not in _cache:
+        with _cache_lock:
+            if "outfits" not in _cache:
+                import engine_knapsack as ek
+                _cache["outfits"] = ek.parse_outfits(DATA_DIR)
+    return _cache["outfits"]
+
+
+def shared_blocks():
+    """Return the parsed ship blocks, parsing them only once."""
+    if "blocks" not in _cache:
+        with _cache_lock:
+            if "blocks" not in _cache:
+                _cache["blocks"] = parse_blocks(DATA_DIR)
+    return _cache["blocks"]
+
+
+def shared_weapons():
+    """Return the parsed weapon outfits, parsing them only once."""
+    if "weapons" not in _cache:
+        with _cache_lock:
+            if "weapons" not in _cache:
+                _cache["weapons"] = parse_weapon_outfits(DATA_DIR)
+    return _cache["weapons"]
 
 
 def tokenize(line):

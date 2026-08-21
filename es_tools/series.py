@@ -6,12 +6,11 @@ data is parsed once and shared with every table.
 """
 
 import threading
+import time
 
 from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 
-import engine_knapsack as ek
-
-from .paths import DATA_DIR
+from .parse import shared_outfits
 from .table import OutfitTableApp, _SignalBridge
 
 
@@ -36,7 +35,7 @@ class SeriesTable(OutfitTableApp):
         try:
             outfits = self.SERIES_OUTFITS
             if outfits is None:
-                outfits = ek.parse_outfits(self.data_dir)
+                outfits = shared_outfits()
             # Access BUILDER via the class, not the instance, so it is not
             # bound (otherwise "self" is prepended as an extra argument).
             rows = type(self).BUILDER(outfits, self.SERIES)
@@ -55,6 +54,7 @@ class SeriesApp(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.apps = {}
+        self._load_t0 = time.monotonic()
         self._bridge = _SignalBridge(self)
         self._bridge.loaded.connect(self._build_ui)
         self._bridge.failed.connect(self._load_error)
@@ -68,7 +68,7 @@ class SeriesApp(QWidget):
 
     def _load_worker(self):
         try:
-            outfits = ek.parse_outfits(DATA_DIR)
+            outfits = shared_outfits()
             # Access SERIES_FN via the class so it isn't bound to the instance.
             series = type(self).SERIES_FN(outfits)
             self._bridge.loaded.emit((outfits, series))
@@ -80,6 +80,9 @@ class SeriesApp(QWidget):
 
     def _build_ui(self, payload):
         outfits, series = payload
+        elapsed = (time.monotonic() - self._load_t0) * 1000.0
+        print("[load] {}: {} tabs in {:.0f} ms".format(
+            self.__class__.__name__, len(series), elapsed))
         self.status_label.hide()
 
         tabs = QTabWidget()
