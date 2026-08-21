@@ -17,7 +17,7 @@ from .outfits import (ADV_ENGINE_COLUMNS, ENGINE_COLUMNS, H2H_COLUMNS,
                       advanced_engine_types, build_advanced_engine_rows,
                       build_engine_rows, build_h2h_rows, build_power_rows,
                       build_unique_rows, h2h_series, power_series)
-from .parse import parse_blocks, shared_blocks
+from .parse import shared_blocks
 from .series import SeriesApp, SeriesTable
 from .ships import SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships
 from .table import OutfitTableApp
