@@ -26,8 +26,9 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 from .engine_picker import EnginePickerApp
-from .outfit_apps import EnginesApp, GeneratorsApp, ShipBunksApp
+from .outfit_apps import EnginesApp, HandToHandApp, PowerApp, ShipBunksApp
 from .paths import ICONS_DIR
+from .systems import SystemsApp
 from .theme import apply_theme
 from .weapons import WeaponsApp
 
@@ -45,8 +46,10 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(EnginePickerApp(), "Engine Picker")
         tabs.addTab(ShipBunksApp(), "Ship Bunks")
-        tabs.addTab(GeneratorsApp(), "Generators")
         tabs.addTab(EnginesApp(), "Engines")
+        tabs.addTab(PowerApp(), "Power")
+        tabs.addTab(SystemsApp(), "Systems")
+        tabs.addTab(HandToHandApp(), "Hand to Hand")
         tabs.addTab(WeaponsApp(), "Weapons")
         self.setCentralWidget(tabs)
 

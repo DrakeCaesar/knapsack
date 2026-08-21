@@ -1,32 +1,22 @@
 """The outfit comparison tabs built on OutfitTableApp:
 
-* GeneratorsApp - every generator outfit
-* EnginesApp    - every engine outfit
-* ShipBunksApp  - every ship by maximum achievable crew capacity
+* EnginesApp     - every engine outfit
+* PowerApp       - every power outfit (generators, batteries, solar, ...)
+* HandToHandApp  - every hand-to-hand (boarding) outfit
+* ShipBunksApp   - every ship by maximum achievable crew capacity
 """
 
 import os
 
 from PySide6.QtWidgets import QApplication, QCheckBox
 
-from .outfits import (ENGINE_COLUMNS, GENERATOR_COLUMNS,
-                      build_engine_rows, build_generator_rows)
+from .outfits import (ENGINE_COLUMNS, H2H_COLUMNS, POWER_COLUMNS,
+                      build_engine_rows, build_h2h_rows, build_power_rows,
+                      h2h_series, power_series)
 from .parse import parse_blocks
+from .series import SeriesApp, SeriesTable
 from .ships import SHIP_COLUMNS, build_rows, dedupe_rows, resolve_ships
 from .table import OutfitTableApp
-
-
-class GeneratorsApp(OutfitTableApp):
-    """Tab that compares the stats of every generator outfit."""
-
-    COLUMNS = GENERATOR_COLUMNS
-    BUILDER = build_generator_rows
-    REVERSED_KEYS = {"energy", "energy_per_space", "energy_per_heat"}
-    RATIO_KEYS = {"energy_per_space", "energy_per_heat"}
-    NOUN = "generator"
-    CONFIG_FILENAME = ".endless_sky_generators.json"
-    DEFAULT_SORT_KEY = "energy"
-    DEFAULT_SORT_REVERSE = True
 
 
 class EnginesApp(OutfitTableApp):
@@ -40,6 +30,50 @@ class EnginesApp(OutfitTableApp):
     CONFIG_FILENAME = ".endless_sky_engines.json"
     DEFAULT_SORT_KEY = "thrust"
     DEFAULT_SORT_REVERSE = True
+
+
+class PowerTable(SeriesTable):
+    """Heatmap table comparing the power outfits of a single series."""
+
+    COLUMNS = POWER_COLUMNS
+    BUILDER = build_power_rows
+    TEXT_KEYS = {"name", "faction", "series"}
+    REVERSED_KEYS = {"energy", "energy_capacity", "solar",
+                     "energy_per_space", "energy_per_heat"}
+    RATIO_KEYS = {"energy_per_space", "energy_per_heat"}
+    NOUN = "power outfit"
+    DEFAULT_SORT_KEY = "name"
+    CONFIG_FILENAME = ".endless_sky_power.json"
+
+
+class PowerApp(SeriesApp):
+    """Tab comparing power outfits, split into one tab per series."""
+
+    TABLE_CLS = PowerTable
+    SERIES_FN = power_series
+    LABEL = "Loading power outfits..."
+
+
+class HandToHandTable(SeriesTable):
+    """Heatmap table comparing the hand-to-hand outfits of a single series."""
+
+    COLUMNS = H2H_COLUMNS
+    BUILDER = build_h2h_rows
+    TEXT_KEYS = {"name", "faction"}
+    REVERSED_KEYS = {"capture_attack", "capture_defense"}
+    RATIO_KEYS = set()
+    NOUN = "hand-to-hand outfit"
+    DEFAULT_SORT_KEY = "capture_attack"
+    DEFAULT_SORT_REVERSE = True
+    CONFIG_FILENAME = ".endless_sky_hand_to_hand.json"
+
+
+class HandToHandApp(SeriesApp):
+    """Tab comparing hand-to-hand outfits, split into one tab per series."""
+
+    TABLE_CLS = HandToHandTable
+    SERIES_FN = h2h_series
+    LABEL = "Loading hand-to-hand outfits..."
 
 
 class ShipBunksApp(OutfitTableApp):

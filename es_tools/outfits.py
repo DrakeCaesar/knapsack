@@ -129,12 +129,21 @@ def build_generator_rows(outfits):
     return rows
 
 
-def build_engine_rows(outfits):
-    """Return one row per engine outfit with comparable stats."""
+# Engine series handled by the Engines tab.
+ENGINE_SERIES = {"Engines"}
+
+
+def build_engine_rows(outfits, series=None):
+    """Return one row per engine outfit with comparable stats.
+
+    ``series`` optionally restricts the rows to a single engine series.
+    """
     rows = []
     for outfit in outfits:
         attrs = outfit["attrs"]
-        if attrs.get("series") != "Engines":
+        if attrs.get("series") not in ENGINE_SERIES:
+            continue
+        if series is not None and attrs.get("series") != series:
             continue
 
         thrust = number(attrs, "thrust")
@@ -350,3 +359,236 @@ def weapon_mount_types(outfits):
             if (mount, wtype) in present:
                 groups.append((mount, wtype))
     return groups
+
+
+# Power outfit series handled by the Power tab (the game's "Power" category).
+POWER_SERIES = {"Generators", "Batteries", "Solar"}
+
+# Power comparison table columns: (header, row key, anchor).
+POWER_COLUMNS = [
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Type", "series", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Energy/s", "energy", "e"),
+    ("En Cap", "energy_capacity", "e"),
+    ("Heat/s", "heat", "e"),
+    ("Energy/Space", "energy_per_space", "e"),
+    ("Energy/Heat", "energy_per_heat", "e"),
+    ("Solar", "solar", "e"),
+]
+
+# Systems comparison table columns.
+SYSTEMS_COLUMNS = [
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Type", "series", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Shields", "shields", "e"),
+    ("Sh Gen", "shield_generation", "e"),
+    ("Cooling", "cooling", "e"),
+    ("Scan", "scan_power", "e"),
+    ("Repair", "hull_repair", "e"),
+    ("Hull", "hull", "e"),
+    ("Jam", "jamming", "e"),
+    ("En Use", "energy", "e"),
+    ("Fuel", "fuel_capacity", "e"),
+    ("Ramscp", "ramscoop", "e"),
+]
+
+# Hand-to-hand comparison table columns.
+H2H_COLUMNS = [
+    ("Name", "name", "w"),
+    ("Faction", "faction", "w"),
+    ("Cost", "cost", "e"),
+    ("Mass", "mass", "e"),
+    ("Space", "space", "e"),
+    ("Cap Atk", "capture_attack", "e"),
+    ("Cap Def", "capture_defense", "e"),
+]
+
+
+def build_power_rows(outfits, series=None):
+    """Return one row per power outfit (generators, batteries, solar, ...).
+
+    ``series`` optionally restricts the rows to a single power series.
+    """
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("series") not in POWER_SERIES:
+            continue
+        if series is not None and attrs.get("series") != series:
+            continue
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
+        space = max(0.0, -number(attrs, "outfit space"))
+        energy = number(attrs, "energy generation")
+        heat = number(attrs, "heat generation")
+        thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "series": attrs.get("series", ""),
+            "description": description if isinstance(description, str) else "",
+            "cost": cost,
+            "mass": number(attrs, "mass"),
+            "space": space,
+            "energy": energy,
+            "energy_capacity": number(attrs, "energy capacity"),
+            "heat": heat,
+            "energy_per_space": energy / space if space > 0 else 0.0,
+            "energy_per_heat": energy / heat if heat > 0 else 0.0,
+            "solar": number(attrs, "solar collection"),
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (row["series"], -row["energy"], row["name"].lower()))
+    return rows
+
+
+def build_systems_rows(outfits, series=None):
+    """Return one row per systems-category outfit (shields, cooling, ...).
+
+    ``series`` optionally restricts the rows to a single system series; the
+    special value "Other" matches systems that have no series attribute.
+    """
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("category") != "Systems":
+            continue
+        actual = attrs.get("series", "")
+        if series == "Other":
+            if actual:
+                continue
+        elif series is not None and actual != series:
+            continue
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
+        space = max(0.0, -number(attrs, "outfit space"))
+        thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "series": attrs.get("series", ""),
+            "description": description if isinstance(description, str) else "",
+            "cost": cost,
+            "mass": number(attrs, "mass"),
+            "space": space,
+            "shields": number(attrs, "shields"),
+            "shield_generation": number(attrs, "shield generation"),
+            "cooling": number(attrs, "cooling"),
+            "scan_power": number(attrs, "tactical scan power"),
+            "hull_repair": number(attrs, "hull repair rate"),
+            "hull": number(attrs, "hull"),
+            "jamming": number(attrs, "radar jamming"),
+            "energy": number(attrs, "energy consumption"),
+            "fuel_capacity": number(attrs, "fuel capacity"),
+            "ramscoop": number(attrs, "ramscoop"),
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (row["series"], row["name"].lower()))
+    return rows
+
+
+def build_h2h_rows(outfits, series=None):
+    """Return one row per hand-to-hand outfit (boarding equipment).
+
+    ``series`` optionally restricts the rows to a single hand-to-hand series;
+    the special value "Other" matches outfits with no series attribute.
+    """
+    rows = []
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if attrs.get("category") != "Hand to Hand":
+            continue
+        actual = attrs.get("series", "")
+        if series == "Other":
+            if actual:
+                continue
+        elif series is not None and actual != series:
+            continue
+        cost = number(attrs, "cost")
+        if EXCLUDE_ZERO_COST and cost == 0:
+            continue
+        space = max(0.0, -number(attrs, "outfit space"))
+        thumbnail = attrs.get("thumbnail", "")
+        description = attrs.get("description", "")
+        rows.append({
+            "name": outfit["name"],
+            "faction": outfit["faction"],
+            "description": description if isinstance(description, str) else "",
+            "cost": cost,
+            "mass": number(attrs, "mass"),
+            "space": space,
+            "capture_attack": number(attrs, "capture attack"),
+            "capture_defense": number(attrs, "capture defense"),
+            "thumbnail": thumbnail if isinstance(thumbnail, str) else "",
+        })
+
+    rows.sort(key=lambda row: (-row["capture_attack"], row["name"].lower()))
+    return rows
+
+
+# System series handled by the Systems tab, in display order.
+SYSTEM_ORDER = [
+    "Shields", "Cooling", "Scanners", "Repair", "Ramscoops", "Fuel",
+    "Drives", "Jammers", "Passenger", "Special Systems", "Expansions",
+    "Other",
+]
+
+
+def series_in(outfits, predicate, order):
+    """Return the ordered series present among outfits whose attrs match.
+
+    Series with no attribute are folded into an "Other" entry.
+    """
+    present = set()
+    for outfit in outfits:
+        attrs = outfit["attrs"]
+        if not predicate(attrs):
+            continue
+        series = attrs.get("series", "")
+        present.add(series if series else "Other")
+    ordered = []
+    for name in order:
+        if name in present:
+            ordered.append(name)
+    for name in sorted(present):
+        if name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
+def system_series(outfits):
+    """Return the ordered system series that actually contain outfits."""
+    return series_in(outfits, lambda a: a.get("category") == "Systems",
+                     SYSTEM_ORDER)
+
+
+def engine_series(outfits):
+    """Return the ordered engine series that actually contain outfits."""
+    return series_in(outfits, lambda a: a.get("series") in ENGINE_SERIES,
+                     ["Engines"])
+
+
+def power_series(outfits):
+    """Return the ordered power series that actually contain outfits."""
+    return series_in(outfits, lambda a: a.get("series") in POWER_SERIES,
+                     ["Generators", "Batteries", "Solar"])
+
+
+def h2h_series(outfits):
+    """Return the ordered hand-to-hand series that actually contain outfits."""
+    return series_in(outfits, lambda a: a.get("category") == "Hand to Hand",
+                     ["H2H", "Fortifications"])
