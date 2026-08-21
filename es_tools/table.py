@@ -7,6 +7,7 @@ pure-Python data modules.
 """
 
 import json
+import math
 import os
 import threading
 import time
@@ -47,9 +48,16 @@ def heat_color(t):
 
 
 def cell_color(value, min_v, max_v, reverse=False):
-    """Map a value within [min_v, max_v] to its heatmap color."""
-    span = max_v - min_v
-    t = 0.5 if span == 0 else (value - min_v) / span
+    """Map a value within [min_v, max_v] to its heatmap color.
+
+    Uses a log1p scale so a few extreme outliers (e.g. one 1B ship among
+    10M ships) don't squash the rest of the column into a single color.
+    """
+    lo = math.log1p(max(min_v, 0.0))
+    hi = math.log1p(max(max_v, 0.0))
+    v = math.log1p(max(value, 0.0))
+    span = hi - lo
+    t = 0.5 if span == 0 else (v - lo) / span
     if reverse:
         t = 1.0 - t
     return heat_color(t)
@@ -150,6 +158,9 @@ class OutfitTableModel(QAbstractTableModel):
                 if candidate is selected_row:
                     view.setCurrentIndex(self.index(row, 0))
                     break
+        # Always return to the top of the list after a sort, rather than
+        # scrolling to wherever the selected item landed.
+        view.scrollToTop()
 
 
 class HeatmapDelegate(QStyledItemDelegate):
@@ -167,10 +178,12 @@ class HeatmapDelegate(QStyledItemDelegate):
 
         painter.save()
 
-        if key in scales and isinstance(value, (int, float)):
+        if key in scales and isinstance(value, (int, float)) and value != 0:
             color = cell_color(value, *scales[key],
                                reverse=(key in model.table.reversed_keys))
         else:
+            # Zero-valued cells (and any non-numeric cells) get no heat tint,
+            # so they read as "none" rather than as the lowest/highest value.
             color = QColor(ENTRY_BG)
         painter.fillRect(option.rect, color)
 
