@@ -718,11 +718,11 @@ class OutfitTableApp(QWidget):
     def _fit_splitter(self):
         """Size the table and the right-hand preview panel.
 
-        Prefers to show every table column alongside a preview panel wide
-        enough for the widest sprite. If the table is wider than the window,
-        the preview still gets as much room as it can and the table scrolls
-        horizontally. Only does this once per data refresh (and once when the
-        tab is first shown) so it never fights the user's own splitter drags.
+        The table is prioritized so its columns stay visible: it gets its full
+        desired width when there is room, otherwise it keeps most of the window
+        and the preview panel is scaled down so it does not cover the table's
+        columns. Only does this once per data refresh (and once when the tab is
+        first shown) so it never fights the user's own splitter drags.
         """
         if self._splitter_fit:
             return
@@ -732,14 +732,15 @@ class OutfitTableApp(QWidget):
         table_width = self._table_desired_width
         preview_needed = max(self.preview.maximumWidth(), self.MIN_PREVIEW_WIDTH)
 
-        if available >= table_width + preview_needed + 10:
-            # Everything fits: table shows all columns, preview gets the rest.
+        if available >= table_width + self.MIN_PREVIEW_WIDTH:
+            # Room for all columns plus a usable preview: show every column.
             self.splitter.setSizes([table_width, available - table_width])
         else:
-            # Table too wide for the window: size the preview to the widest
-            # sprite (capped so the table stays usable) and let the table
-            # scroll horizontally.
-            preview_size = min(preview_needed, int(available * 0.6))
+            # Table too wide for the window: keep the table wide and scale the
+            # preview down so it doesn't cover the table columns.
+            preview_size = min(preview_needed,
+                               max(self.MIN_PREVIEW_WIDTH,
+                                   int(available * 0.4)))
             table_size = max(1, available - preview_size)
             self.splitter.setSizes([table_size, preview_size])
         self._splitter_fit = True
