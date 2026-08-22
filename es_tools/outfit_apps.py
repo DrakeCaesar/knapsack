@@ -138,10 +138,12 @@ class ShipBunksApp(OutfitTableApp):
 
     COLUMNS = SHIP_COLUMNS
     TEXT_KEYS = {"name", "display_name", "category", "faction"}
-    REVERSED_KEYS = {"max_bunks", "bunks", "cargo", "outfit", "expansions",
+    REVERSED_KEYS = {"max_bunks", "bunks", "cargo", "max_cargo", "outfit",
+                     "expansions",
                      "outfit_total", "bunk_rooms", "leftover_outfit",
                      "shields", "hull", "crew"}
     RATIO_KEYS = set()
+    SECTION_KEYS = {"max_bunks", "cargo"}
     HAS_FACTIONS = True
     HAS_SHOW_ALL = True
     NOUN = "ship"

@@ -14,7 +14,7 @@ import time
 
 from PySide6.QtCore import (QAbstractTableModel, QModelIndex, QObject, QTimer,
                             Qt, Signal)
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel,
                                QMenu, QPushButton, QScrollArea, QSplitter,
@@ -31,6 +31,9 @@ from .theme import BG, ENTRY_BG, FG, SELECT_BG
 
 # Custom role used by the delegate to fetch the raw (unformatted) cell value.
 RAW_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
+# Color of the vertical separators drawn between column groups.
+SECTION_BORDER = "#000000"
 
 
 def heat_color(t):
@@ -203,6 +206,13 @@ class HeatmapDelegate(QStyledItemDelegate):
         painter.setPen(QColor("#ffffff") if selected else QColor(FG))
         painter.drawText(option.rect.adjusted(6, 0, -6, 0),
                          Qt.AlignmentFlag(align), text)
+
+        # Vertical separator at the start of a new column group, drawn on top
+        # of the cell fill so it stays visible over the heatmap colors.
+        if key in getattr(model.table, "SECTION_KEYS", ()):
+            painter.setPen(QPen(QColor(SECTION_BORDER), 1))
+            x = option.rect.left()
+            painter.drawLine(x, option.rect.top(), x, option.rect.bottom())
         painter.restore()
 
 
@@ -210,6 +220,9 @@ class OutfitTableApp(QWidget):
     """Reusable heatmap table for comparing outfit stats."""
 
     COLUMNS = []
+    # Column keys that start a new group; a vertical separator is drawn before
+    # them in the heatmap delegate.
+    SECTION_KEYS = set()
     BUILDER = None
     REVERSED_KEYS = set()
     RATIO_KEYS = set()

@@ -13,22 +13,28 @@ BUNK_ROOM_OUTFIT_SPACE = 20.0
 # declared; each is auto-sized to the widest text in that column, including
 # the header.
 SHIP_COLUMNS = [
+    # Identity / general
     ("Source Name", "name", "w"),
     ("In-Game Name", "display_name", "w"),
     ("Faction", "faction", "w"),
     ("Category", "category", "w"),
-    ("Max Bunks", "max_bunks", "e"),
-    ("Bunks", "bunks", "e"),
     ("Crew", "crew", "e"),
-    ("Cargo", "cargo", "e"),
-    ("Expansions", "expansions", "e"),
-    ("Bunk Rooms", "bunk_rooms", "e"),
-    ("Outfit Total", "outfit_total", "e"),
-    ("Outfit", "outfit", "e"),
-    ("Leftover Outfit", "leftover_outfit", "e"),
     ("Cost", "cost", "e"),
     ("Shields", "shields", "e"),
     ("Hull", "hull", "e"),
+
+    # Bunks optimization
+    ("Max Bunks", "max_bunks", "e"),
+    ("Bunks", "bunks", "e"),
+    ("Bunk Rooms", "bunk_rooms", "e"),
+    ("Outfit", "outfit", "e"),
+    ("Outfit Total", "outfit_total", "e"),
+    ("Expansions", "expansions", "e"),
+    ("Leftover Outfit", "leftover_outfit", "e"),
+
+    # Cargo optimization
+    ("Cargo", "cargo", "e"),
+    ("Max Cargo", "max_cargo", "e"),
 ]
 
 
@@ -88,6 +94,15 @@ def build_rows(ships):
         bunk_rooms = int(outfit_total // BUNK_ROOM_OUTFIT_SPACE)
         max_bunks = bunks + bunk_rooms * BUNK_ROOM_BUNKS
 
+        # Max cargo mirrors Max Bunks: remove bunk rooms to free outfit space,
+        # then fill that space with "Cargo Expansion" outfits (20 outfit ->
+        # 15 cargo). "Outfits Expansion" (cargo -> outfit) is NOT used here --
+        # that reverse direction only matters for the Max Bunks column.
+        bunk_outfit = (bunks // BUNK_ROOM_BUNKS) * BUNK_ROOM_OUTFIT_SPACE
+        outfit_for_cargo = outfit + bunk_outfit
+        cargo_expansions = int(outfit_for_cargo // EXPANSION_CARGO_SPACE)
+        max_cargo = cargo + cargo_expansions * EXPANSION_OUTFIT_SPACE
+
         category = attrs.get("category", "")
         sprite = attrs.get("sprite", "")
         thumbnail = attrs.get("thumbnail", "")
@@ -108,6 +123,7 @@ def build_rows(ships):
             "crew": number(attrs, "required crew"),
             "bunks": bunks,
             "cargo": cargo,
+            "max_cargo": max_cargo,
             "outfit": outfit,
             "expansions": expansions,
             "outfit_total": outfit_total,
