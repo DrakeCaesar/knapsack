@@ -17,7 +17,24 @@ class SystemCategoryTable(SeriesTable):
     REVERSED_KEYS = {"shields", "shield_generation", "cooling", "scan_power",
                      "hull_repair", "hull", "jamming", "fuel_capacity",
                      "ramscoop", "ramscoop_per_space", "ramscoop_effective",
-                     "ramscoop_effective_per_space"}
+                     "ramscoop_effective_per_space",
+                     "energy_capacity", "active_cooling", "fuel_generation",
+                     "hull_repair_multiplier", "cargo_scan_power",
+                     "outfit_scan_power", "asteroid_scan_power",
+                     "scan_interference", "jump_speed", "shield_protection",
+                     "hull_protection", "bunks", "turret_mounts", "gun_ports",
+                     "spinal_mount", "heat_capacity", "heat_dissipation",
+                     "atmosphere_scan", "asteroid_mount_jd", "crystal_projector",
+                     "delayed_shield_energy", "delayed_shield_generation",
+                     "delayed_shield_heat", "disruption_protection",
+                     "flotsam_chance", "fuel_protection",
+                     "holographic_entertainment", "inertia_reduction",
+                     "jump_range", "lasing_power", "multimodal_armor",
+                     "nanite_upgrades", "optical_jamming",
+                     "piercing_protection", "relay_upgrades",
+                     "shield_connection_point", "shield_energy_multiplier",
+                     "shield_generation_multiplier", "hyperdrive",
+                     "jump_drive", "scram_drive", "quantum_keystone"}
     THREE_DECIMAL_KEYS = {"energy", "heat", "reload", "dps",
                           "ramscoop_effective"}
     RATIO_KEYS = {"ramscoop_per_space", "ramscoop_effective_per_space"}

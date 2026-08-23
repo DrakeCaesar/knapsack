@@ -28,7 +28,9 @@ class EnginesTable(OutfitTableApp):
 
     COLUMNS = ENGINE_COLUMNS
     BUILDER = build_engine_rows
-    REVERSED_KEYS = {"thrust", "turn", "thrust_per_space", "turn_per_space"}
+    REVERSED_KEYS = {"thrust", "turn", "thrust_per_space", "turn_per_space",
+                     "reverse_thrust", "afterburner_thrust",
+                     "weapon_capacity"}
     RATIO_KEYS = {"thrust_per_space", "turn_per_space"}
     NOUN = "engine"
     CONFIG_FILENAME = ".endless_sky_engines.json"
@@ -43,7 +45,9 @@ class PowerTable(SeriesTable):
     BUILDER = build_power_rows
     TEXT_KEYS = {"name", "faction", "series"}
     REVERSED_KEYS = {"energy", "energy_capacity", "solar",
-                     "energy_per_space", "energy_per_heat"}
+                     "energy_per_space", "energy_per_heat",
+                     "ion_resistance", "scramble_resistance",
+                     "shield_energy_multiplier", "hull_energy_multiplier"}
     RATIO_KEYS = {"energy_per_space", "energy_per_heat"}
     NOUN = "power outfit"
     DEFAULT_SORT_KEY = "name"
@@ -86,7 +90,10 @@ class AdvancedEnginesTable(SeriesTable):
     COLUMNS = ADV_ENGINE_COLUMNS
     BUILDER = build_advanced_engine_rows
     TEXT_KEYS = {"name", "faction", "etype"}
-    REVERSED_KEYS = {"afterburner_thrust", "reverse_thrust", "jump_speed"}
+    REVERSED_KEYS = {"afterburner_thrust", "reverse_thrust", "jump_speed",
+                     "afterburner_shields", "weapon_capacity",
+                     "slowing_resistance", "force_protection",
+                     "inertia_reduction"}
     RATIO_KEYS = set()
     NOUN = "advanced engine"
     DEFAULT_SORT_KEY = "name"
@@ -120,8 +127,11 @@ class SpecialApp(OutfitTableApp):
     COLUMNS = UNIQUE_COLUMNS
     BUILDER = build_unique_rows
     TEXT_KEYS = {"name", "faction", "series"}
-    REVERSED_KEYS = set()
+    REVERSED_KEYS = {"shields", "hull", "shield_generation", "cooling",
+                     "energy_generation", "fuel_capacity", "ramscoop",
+                     "thrust", "turn", "bunks", "cloak", "flotsam_chance"}
     RATIO_KEYS = set()
+    HIDE_ZERO_COLUMNS = True
     NOUN = "special outfit"
     DEFAULT_SORT_KEY = "series"
     DEFAULT_SORT_REVERSE = False
@@ -141,7 +151,8 @@ class ShipBunksApp(OutfitTableApp):
     REVERSED_KEYS = {"max_bunks", "bunks", "cargo", "max_cargo", "outfit",
                      "expansions",
                      "outfit_total", "bunk_rooms", "leftover_outfit",
-                     "shields", "hull", "crew"}
+                     "shields", "hull", "crew", "fuel_capacity",
+                     "engine_capacity", "weapon_capacity", "heat_dissipation"}
     RATIO_KEYS = set()
     SECTION_KEYS = {"max_bunks", "cargo"}
     HAS_FACTIONS = True

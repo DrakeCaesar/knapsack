@@ -28,7 +28,9 @@ class WeaponCategoryTable(OutfitTableApp):
                      "corrosion_damage", "leak_damage", "burn_damage",
                      "piercing", "hit_force", "missile_strength",
                      "blast_radius", "range", "burst_count", "dps",
-                     "velocity", "lifetime", "turn", "tracking", "turret_turn"}
+                     "velocity", "lifetime", "turn", "tracking", "turret_turn",
+                     "penetration_count", "split_range", "firing_ion",
+                     "firing_scramble"}
     RATIO_KEYS = set()
     THREE_DECIMAL_KEYS = {"energy", "heat", "reload", "dps",
                           "fuel", "burst_reload", "firing_force"}
