@@ -100,13 +100,10 @@ def build_rows(ships):
         bunk_rooms = int(outfit_total // BUNK_ROOM_OUTFIT_SPACE)
         max_bunks = bunks + bunk_rooms * BUNK_ROOM_BUNKS
 
-        # Max cargo mirrors Max Bunks: remove bunk rooms to free outfit space,
-        # then fill that space with "Cargo Expansion" outfits (20 outfit ->
-        # 15 cargo). "Outfits Expansion" (cargo -> outfit) is NOT used here --
-        # that reverse direction only matters for the Max Bunks column.
-        bunk_outfit = (bunks // BUNK_ROOM_BUNKS) * BUNK_ROOM_OUTFIT_SPACE
-        outfit_for_cargo = outfit + bunk_outfit
-        cargo_expansions = int(outfit_for_cargo // EXPANSION_CARGO_SPACE)
+        # Max cargo: fill the ship's outfit space with "Cargo Expansion"
+        # outfits (20 outfit -> 15 cargo). Base bunks cannot be converted back
+        # into outfit space (no outfit does that), so they don't contribute.
+        cargo_expansions = int(outfit // EXPANSION_CARGO_SPACE)
         max_cargo = cargo + cargo_expansions * EXPANSION_OUTFIT_SPACE
 
         category = attrs.get("category", "")
