@@ -93,8 +93,9 @@ class AdvancedEnginesTable(SeriesTable):
     REVERSED_KEYS = {"afterburner_thrust", "reverse_thrust", "jump_speed",
                      "afterburner_shields", "weapon_capacity",
                      "slowing_resistance", "force_protection",
-                     "inertia_reduction"}
-    RATIO_KEYS = set()
+                     "inertia_reduction", "reverse_thrust_per_space",
+                     "turn_per_space"}
+    RATIO_KEYS = {"reverse_thrust_per_space", "turn_per_space"}
     NOUN = "advanced engine"
     DEFAULT_SORT_KEY = "name"
     CONFIG_FILENAME = ".endless_sky_advanced_engines.json"

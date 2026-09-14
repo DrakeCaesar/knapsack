@@ -808,7 +808,10 @@ ADV_ENGINE_COLUMNS = [
     ("Space", "space", "e"),
     ("Aft Thr", "afterburner_thrust", "e"),
     ("Rev Thr", "reverse_thrust", "e"),
+    ("Rev Thr/Space", "reverse_thrust_per_space", "e"),
     ("Jump Spd", "jump_speed", "e"),
+    ("Turn", "turn", "e"),
+    ("Turn/Space", "turn_per_space", "e"),
     ("En/s", "energy", "e"),
     ("Ht/s", "heat", "e"),
     ("Aft Fuel", "afterburner_fuel", "e"),
@@ -878,6 +881,8 @@ def build_advanced_engine_rows(outfits, etype=None):
         if EXCLUDE_ZERO_COST and cost == 0:
             continue
         space = max(0.0, -number(attrs, "outfit space"))
+        reverse_thrust = number(attrs, "reverse thrust")
+        turn = number(attrs, "turn")
         thumbnail = attrs.get("thumbnail", "")
         description = attrs.get("description", "")
         rows.append({
@@ -889,8 +894,11 @@ def build_advanced_engine_rows(outfits, etype=None):
             "mass": number(attrs, "mass"),
             "space": space,
             "afterburner_thrust": number(attrs, "afterburner thrust"),
-            "reverse_thrust": number(attrs, "reverse thrust"),
+            "reverse_thrust": reverse_thrust,
+            "reverse_thrust_per_space": reverse_thrust / space if space > 0 else 0.0,
             "jump_speed": number(attrs, "jump speed"),
+            "turn": turn,
+            "turn_per_space": turn / space if space > 0 else 0.0,
             "energy": (number(attrs, "afterburner energy")
                        + number(attrs, "reverse thrusting energy")),
             "heat": (number(attrs, "afterburner heat")
